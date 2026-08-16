@@ -59,7 +59,7 @@ class JobManager:
             if not backend.simulated and any(
                 not job.backend.simulated for job in self._active.values()
             ):
-                raise ValueError("The DiskPart MVP permits only one real wipe at a time")
+                raise ValueError("Only one physical wipe may run at a time")
 
             disk = assessment.disk
             authorization = WipeAuthorization(

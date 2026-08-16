@@ -85,7 +85,7 @@ def test_only_one_real_backend_job_can_be_active(tmp_path) -> None:
     manager.start(_assessment(make_disk()), "one", backend)
     assert backend.entered.wait(timeout=2)
 
-    with pytest.raises(ValueError, match="only one real wipe"):
+    with pytest.raises(ValueError, match="Only one physical wipe"):
         manager.start(_assessment(_second_disk()), "two", backend)
 
     backend.release.set()
