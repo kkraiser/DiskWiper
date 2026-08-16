@@ -1,0 +1,30 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "diskwiper"
+version = "0.1.0"
+description = "Safety-first Windows HDD overwrite utility"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "PySide6>=6.8,<7",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3",
+    "pytest-cov>=6",
+]
+
+[project.scripts]
+diskwiper = "diskwiper.main:main"
+
+[tool.hatch.build.targets.wheel]
+packages = ["diskwiper"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+
