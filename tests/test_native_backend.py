@@ -144,6 +144,47 @@ def test_native_backend_rejects_incomplete_volume_lock_coverage() -> None:
     assert not raw.writes
 
 
+def test_native_backend_allows_partition_without_volume_or_filesystem() -> None:
+    before = make_disk(
+        size_bytes=4096,
+        partition_count=1,
+        volumes=(VolumeInfo(partition_type="Unknown", size_bytes=4096),),
+    )
+    after = replace(before, partition_count=0, volumes=())
+    raw = FakeRawDisk(before)
+    locks: list[tuple[str, ...]] = []
+    backend = make_backend(SequenceDiscovery(before, before, after), raw, locks)
+
+    result = backend.run(
+        authorization_for(before), threading.Event(), lambda *_: None
+    )
+
+    assert locks == [()]
+    assert result.status is JobStatus.COMPLETE
+
+
+def test_native_backend_rejects_unaddressable_filesystem_partition() -> None:
+    disk = make_disk(
+        size_bytes=4096,
+        partition_count=1,
+        volumes=(
+            VolumeInfo(
+                partition_type="Basic",
+                file_system="NTFS",
+                path=r"C:\unsupported-mount",
+                size_bytes=4096,
+            ),
+        ),
+    )
+    raw = FakeRawDisk(disk)
+    backend = make_backend(SequenceDiscovery(disk), raw, [])
+
+    with pytest.raises(BackendError, match="filesystem-bearing"):
+        backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
+
+    assert not raw.writes
+
+
 def test_native_backend_rejects_geometry_change_before_writing() -> None:
     disk = make_disk(size_bytes=4096)
     raw = FakeRawDisk(disk)

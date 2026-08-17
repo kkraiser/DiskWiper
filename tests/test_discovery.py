@@ -41,6 +41,8 @@ def test_discovery_preserves_every_partition_access_path(monkeypatch) -> None:
                         "DriveLetter": "T",
                         "Path": "T:\\",
                         "AccessPaths": ["T:\\", "\\\\?\\Volume{guid}\\"],
+                        "PartitionType": "Basic",
+                        "FileSystem": "NTFS",
                         "Size": 4096,
                     }
                 ],
@@ -57,3 +59,5 @@ def test_discovery_preserves_every_partition_access_path(monkeypatch) -> None:
 
     volume = PowerShellDiskDiscovery().discover().disks[0].volumes[0]
     assert volume.access_paths == ("T:\\", "\\\\?\\Volume{guid}\\")
+    assert volume.partition_type == "Basic"
+    assert volume.file_system == "NTFS"

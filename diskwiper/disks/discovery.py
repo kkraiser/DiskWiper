@@ -50,6 +50,8 @@ $items = @(
                 Label = if ($volume) { [string]$volume.FileSystemLabel } else { $null }
                 Path = if ($accessPaths.Count -gt 0) { [string]$accessPaths[0] } else { $null }
                 AccessPaths = @($accessPaths | ForEach-Object { [string]$_ })
+                PartitionType = [string]$partition.Type
+                FileSystem = if ($volume) { [string]$volume.FileSystem } else { $null }
                 Size = if ($volume) { [uint64]$volume.Size } else { [uint64]$partition.Size }
             }
         }
@@ -150,6 +152,8 @@ class PowerShellDiskDiscovery:
                     for value in _as_list(volume.get("AccessPaths"))
                     if (path := _optional_text(value))
                 ),
+                partition_type=_optional_text(volume.get("PartitionType")),
+                file_system=_optional_text(volume.get("FileSystem")),
                 size_bytes=_optional_int(volume.get("Size")),
             )
             for volume in raw_volumes

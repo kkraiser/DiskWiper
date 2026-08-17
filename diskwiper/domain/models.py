@@ -39,6 +39,8 @@ class VolumeInfo:
     label: str | None = None
     path: str | None = None
     access_paths: tuple[str, ...] = ()
+    partition_type: str | None = None
+    file_system: str | None = None
     size_bytes: int | None = None
 
 

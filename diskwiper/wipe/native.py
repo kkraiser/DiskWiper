@@ -208,16 +208,24 @@ def _lockable_volume_paths(disk: PhysicalDisk) -> tuple[str, ...]:
     paths: list[str] = []
     for volume in disk.volumes:
         candidates = (*volume.access_paths, volume.path, volume.drive_letter)
+        provided_candidates = tuple(candidate for candidate in candidates if candidate)
         normalized_candidates: list[str] = []
-        for candidate in candidates:
-            if not candidate:
-                continue
+        for candidate in provided_candidates:
             try:
                 normalized_candidates.append(volume_device_path(candidate))
             except RawWriteError:
                 continue
         if not normalized_candidates:
-            raise BackendError("A partition has no lockable volume access path")
+            if volume.file_system or volume.drive_letter:
+                raise BackendError(
+                    "A filesystem-bearing partition has no lockable volume access path"
+                )
+            if provided_candidates:
+                raise BackendError("A partition has only unsupported volume access paths")
+            # Reserved, unknown, and RAW partitions may have no Windows volume
+            # object at all. With no filesystem and no access path, there is
+            # nothing Windows can lock or dismount before physical-disk access.
+            continue
         normalized = next(
             (
                 path

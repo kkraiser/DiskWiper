@@ -13,3 +13,5 @@ build/
 *.db
 native-before.txt
 native-after.txt
+parallel-before.txt
+parallel-after.txt
