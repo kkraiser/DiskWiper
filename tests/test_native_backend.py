@@ -11,6 +11,7 @@ from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.domain.models import JobStatus, VolumeInfo, WipeAuthorization
 from diskwiper.wipe.backends import BackendError
 from diskwiper.wipe.native import NativeRawWriteBackend
+from diskwiper.wipe.raw import RawWriteError
 from tests.factories import make_disk
 
 
@@ -31,6 +32,7 @@ class FakeRawDisk(AbstractContextManager):
         self.writes: list[tuple[int, int]] = []
         self.flushed = False
         self.properties_updated = False
+        self.write_error: Exception | None = None
 
     def __enter__(self):
         return self
@@ -39,6 +41,8 @@ class FakeRawDisk(AbstractContextManager):
         return None
 
     def write_zeros(self, offset: int, length: int) -> int:
+        if self.write_error is not None:
+            raise self.write_error
         self.writes.append((offset, length))
         if self.cancel is not None:
             self.cancel.set()
@@ -157,3 +161,27 @@ def test_native_backend_gate_rejects_before_discovery() -> None:
 
     with pytest.raises(BackendError, match="gate is disabled"):
         backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
+
+
+def test_native_backend_translates_disconnect_style_write_failure() -> None:
+    disk = make_disk(size_bytes=4096)
+    raw = FakeRawDisk(disk)
+    raw.write_error = RawWriteError("The device is not connected")
+    backend = make_backend(SequenceDiscovery(disk, disk), raw, [])
+
+    with pytest.raises(BackendError, match="device is not connected"):
+        backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
+
+    assert not raw.flushed
+    assert not raw.properties_updated
+
+
+def test_native_backend_requires_zero_partitions_after_write() -> None:
+    disk = make_disk(size_bytes=4096)
+    raw = FakeRawDisk(disk)
+    backend = make_backend(SequenceDiscovery(disk, disk, disk), raw, [])
+
+    with pytest.raises(BackendError, match="found 1 partition"):
+        backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
+
+    assert raw.flushed and raw.properties_updated

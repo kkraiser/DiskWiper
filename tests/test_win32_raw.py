@@ -26,6 +26,13 @@ class FakeKernel32:
         self.flushed = False
         self.freed = False
         self.next_handle = 100
+        self.fail_control: int | None = None
+        self.fail_control_occurrence = 1
+        self._control_occurrences: dict[int, int] = {}
+        self.fail_write = False
+        self.fail_flush = False
+        self.fail_free = False
+        self.fail_close = False
 
     def CreateFileW(self, path, *_args):
         self.created.append(path)
@@ -37,6 +44,10 @@ class FakeKernel32:
         _returned, _overlapped,
     ):
         self.controls.append(code)
+        occurrence = self._control_occurrences.get(code, 0) + 1
+        self._control_occurrences[code] = occurrence
+        if code == self.fail_control and occurrence == self.fail_control_occurrence:
+            return False
         if code == win32.IOCTL_DISK_GET_LENGTH_INFO:
             ctypes.cast(out_buffer, ctypes.POINTER(ctypes.c_longlong)).contents.value = 8192
         elif code == win32.IOCTL_STORAGE_QUERY_PROPERTY:
@@ -53,11 +64,15 @@ class FakeKernel32:
         return True
 
     def WriteFile(self, _handle, _buffer, length, written, _overlapped):
+        if self.fail_write:
+            return False
         ctypes.cast(written, ctypes.POINTER(win32.wintypes.DWORD)).contents.value = length
         self.writes.append((self._offset, length))
         return True
 
     def FlushFileBuffers(self, _handle):
+        if self.fail_flush:
+            return False
         self.flushed = True
         return True
 
@@ -66,11 +81,11 @@ class FakeKernel32:
 
     def VirtualFree(self, *_args):
         self.freed = True
-        return True
+        return not self.fail_free
 
     def CloseHandle(self, handle):
         self.closed.append(handle)
-        return True
+        return not self.fail_close
 
 
 def test_physical_disk_path_rejects_negative_numbers() -> None:
@@ -169,4 +184,81 @@ def test_read_only_probe_requests_no_write_access_or_write_flags() -> None:
         )
     ]
     assert not api.writes
+    assert api.closed == [101]
+
+
+def test_geometry_query_failure_closes_raw_disk_handle() -> None:
+    api = FakeKernel32()
+    api.fail_control = win32.IOCTL_STORAGE_QUERY_PROPERTY
+
+    with pytest.raises(RawWriteError, match="sector alignment"):
+        WindowsRawDisk(4, kernel32=api)
+
+    assert api.closed == [101]
+
+
+def test_second_volume_lock_failure_releases_every_acquired_handle() -> None:
+    api = FakeKernel32()
+    api.fail_control = win32.FSCTL_LOCK_VOLUME
+    api.fail_control_occurrence = 2
+
+    with pytest.raises(RawWriteError, match="lock volume"):
+        LockedVolumes(("T", "U"), kernel32=api)
+
+    assert api.closed == [102, 101]
+
+
+def test_write_failure_is_reported_and_resources_still_close() -> None:
+    api = FakeKernel32()
+    api.fail_write = True
+
+    with pytest.raises(RawWriteError, match="Raw write failed"):
+        with WindowsRawDisk(4, kernel32=api) as disk:
+            disk.write_zeros(0, 4096)
+
+    assert api.freed
+    assert api.closed == [101]
+
+
+def test_buffer_release_failure_does_not_leak_disk_handle() -> None:
+    api = FakeKernel32()
+    api.fail_free = True
+    disk = WindowsRawDisk(4, kernel32=api)
+    disk.write_zeros(0, 4096)
+
+    with pytest.raises(RawWriteError, match="release aligned zero buffer"):
+        disk.close()
+
+    assert api.closed == [101]
+
+
+def test_probe_geometry_failure_closes_read_only_handle() -> None:
+    api = FakeKernel32()
+    api.fail_control = win32.IOCTL_DISK_GET_LENGTH_INFO
+
+    with pytest.raises(RawWriteError, match="disk length"):
+        WindowsRawDiskProbe(4, kernel32=api)
+
+    assert api.closed == [101]
+
+
+def test_flush_failure_is_reported_and_handle_still_closes() -> None:
+    api = FakeKernel32()
+    api.fail_flush = True
+
+    with pytest.raises(RawWriteError, match="flush raw disk"):
+        with WindowsRawDisk(4, kernel32=api) as disk:
+            disk.flush()
+
+    assert api.closed == [101]
+
+
+def test_dismount_failure_releases_locked_volume_handle() -> None:
+    api = FakeKernel32()
+    api.fail_control = win32.FSCTL_DISMOUNT_VOLUME
+
+    with pytest.raises(RawWriteError, match="dismount volume"):
+        LockedVolumes(("T",), kernel32=api)
+
+    assert api.controls == [win32.FSCTL_LOCK_VOLUME, win32.FSCTL_DISMOUNT_VOLUME]
     assert api.closed == [101]

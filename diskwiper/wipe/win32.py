@@ -138,16 +138,20 @@ class WindowsRawDisk:
             raise _last_error("Could not refresh raw disk properties")
 
     def close(self) -> None:
+        cleanup_error: RawWriteError | None = None
         if self._zero_buffer is not None:
             if not self._kernel32.VirtualFree(
                 ctypes.c_void_p(self._zero_buffer), 0, MEM_RELEASE
             ):
-                raise _last_error("Could not release aligned zero buffer")
+                cleanup_error = _last_error("Could not release aligned zero buffer")
             self._zero_buffer = None
             self._zero_buffer_size = 0
         if self._handle is not None:
-            self._kernel32.CloseHandle(self._handle)
+            if not self._kernel32.CloseHandle(self._handle) and cleanup_error is None:
+                cleanup_error = _last_error("Could not close raw disk handle")
             self._handle = None
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def __enter__(self) -> WindowsRawDisk:
         return self
@@ -217,8 +221,14 @@ class LockedVolumes:
             raise
 
     def close(self) -> None:
+        cleanup_error: RawWriteError | None = None
         while self._handles:
-            self._kernel32.CloseHandle(self._handles.pop())
+            if not self._kernel32.CloseHandle(self._handles.pop()):
+                cleanup_error = cleanup_error or _last_error(
+                    "Could not close locked volume handle"
+                )
+        if cleanup_error is not None:
+            raise cleanup_error
 
     def __enter__(self) -> LockedVolumes:
         return self
@@ -265,7 +275,9 @@ class WindowsRawDiskProbe:
 
     def close(self) -> None:
         if self._handle is not None:
-            self._kernel32.CloseHandle(self._handle)
+            if not self._kernel32.CloseHandle(self._handle):
+                self._handle = None
+                raise _last_error("Could not close read-only raw disk handle")
             self._handle = None
 
     def __enter__(self) -> WindowsRawDiskProbe:
