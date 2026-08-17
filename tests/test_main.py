@@ -23,3 +23,10 @@ def test_unknown_real_backend_is_rejected() -> None:
 def test_native_preflight_accepts_an_explicit_disk_number() -> None:
     args = build_parser().parse_args(["--native-preflight", "4"])
     assert args.native_preflight == 4
+
+
+def test_native_test_target_is_explicit() -> None:
+    args = build_parser().parse_args(
+        ["--native-test-target", "21A000000419:150038863360"]
+    )
+    assert args.native_test_target == "21A000000419:150038863360"

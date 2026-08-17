@@ -8,6 +8,7 @@ from typing import Callable, Iterable, Protocol
 from diskwiper.disks.discovery import DiskDiscovery, DiscoveryError
 from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.domain.models import JobStatus, PhysicalDisk, WipeAuthorization
+from diskwiper.domain.models import normalize_identifier
 from diskwiper.wipe.backends import BackendError, BackendResult, StatusReporter
 from diskwiper.wipe.raw import RawWriteDevice, RawWriteError, overwrite_with_zeros
 from diskwiper.wipe.win32 import LockedVolumes, WindowsRawDisk, volume_device_path
@@ -32,6 +33,7 @@ class NativeRawWriteBackend:
         protection_policy: ProtectionPolicy,
         real_wipes_enabled: bool,
         is_admin: Callable[[], bool],
+        expected_test_target: str | None,
         *,
         raw_disk_factory: RawDiskFactory = WindowsRawDisk,
         volume_locker: VolumeLocker = LockedVolumes,
@@ -44,6 +46,7 @@ class NativeRawWriteBackend:
         self._policy = protection_policy
         self._real_wipes_enabled = real_wipes_enabled
         self._is_admin = is_admin
+        self._expected_test_target = expected_test_target
         self._raw_disk_factory = raw_disk_factory
         self._volume_locker = volume_locker
         self._chunk_size = chunk_size
@@ -64,6 +67,7 @@ class NativeRawWriteBackend:
 
         report(JobStatus.PREPARING, "Revalidating disk identity and protection", 0, None)
         disk = self._revalidate(authorization)
+        self._validate_test_target(disk)
         volume_paths = _lockable_volume_paths(disk)
 
         try:
@@ -75,6 +79,7 @@ class NativeRawWriteBackend:
                     authorization.size_bytes,
                 )
                 locked_disk = self._revalidate(authorization)
+                self._validate_test_target(locked_disk)
                 if _lockable_volume_paths(locked_disk) != volume_paths:
                     raise BackendError("Disk volume layout changed while acquiring locks")
 
@@ -137,6 +142,17 @@ class NativeRawWriteBackend:
 
     def set_protection_policy(self, policy: ProtectionPolicy) -> None:
         self._policy = policy
+
+    def _validate_test_target(self, disk: PhysicalDisk) -> None:
+        expected = normalize_identifier(self._expected_test_target)
+        actual = normalize_identifier(f"{disk.serial_number}:{disk.size_bytes}")
+        if not expected:
+            raise BackendError("Experimental native test target is not configured")
+        if actual != expected:
+            raise BackendError(
+                "Selected disk does not match the armed native test target: "
+                f"expected {expected}, found {actual}"
+            )
 
     def _revalidate(self, authorization: WipeAuthorization) -> PhysicalDisk:
         try:

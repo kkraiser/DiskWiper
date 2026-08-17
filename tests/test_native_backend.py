@@ -83,11 +83,15 @@ def make_backend(discovery, raw, captured_locks, **changes):
         protection_policy=ProtectionPolicy(frozenset()),
         real_wipes_enabled=True,
         is_admin=lambda: True,
+        expected_test_target=None,
         raw_disk_factory=lambda _number: raw,
         volume_locker=lambda paths: FakeLocker(paths, captured_locks),
         chunk_size=4096,
     )
     options.update(changes)
+    options["expected_test_target"] = options.get("expected_test_target") or (
+        f"SERIAL1234:{raw.size_bytes}"
+    )
     return NativeRawWriteBackend(**options)
 
 
@@ -205,3 +209,19 @@ def test_native_progress_is_throttled_but_always_reports_start_and_finish() -> N
 
     wiping = [event for event in events if event[0] is JobStatus.WIPING]
     assert [event[2] for event in wiping] == [0, 12_288]
+
+
+def test_native_backend_rejects_disk_outside_armed_test_target() -> None:
+    disk = make_disk(size_bytes=4096)
+    raw = FakeRawDisk(disk)
+    backend = make_backend(
+        SequenceDiscovery(disk),
+        raw,
+        [],
+        expected_test_target="DIFFERENT:4096",
+    )
+
+    with pytest.raises(BackendError, match="does not match the armed"):
+        backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
+
+    assert not raw.writes

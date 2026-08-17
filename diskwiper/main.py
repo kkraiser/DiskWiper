@@ -33,6 +33,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Select the destructive backend; native requires an additional safety gate",
     )
     parser.add_argument(
+        "--native-test-target",
+        metavar="SERIAL:SIZE_BYTES",
+        help="Bind experimental native writes to one exact serial and capacity",
+    )
+    parser.add_argument(
         "--data-dir",
         type=Path,
         help="Override the application data directory",
@@ -66,6 +71,7 @@ def main(argv: list[str] | None = None) -> int:
         data_dir=(args.data_dir or default_data_dir()).resolve(),
         real_wipes_requested=args.enable_real_wipes,
         real_backend=args.real_backend,
+        native_test_target=args.native_test_target,
         simulation_seconds=max(1, args.simulation_seconds),
     )
     config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -116,6 +122,7 @@ def main(argv: list[str] | None = None) -> int:
             protection_policy=policy,
             real_wipes_enabled=config.real_wipes_enabled,
             is_admin=is_administrator,
+            expected_test_target=config.native_test_target,
         )
     else:
         real_backend = DiskPartBackend(

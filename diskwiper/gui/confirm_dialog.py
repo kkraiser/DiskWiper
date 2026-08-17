@@ -21,7 +21,11 @@ class ConfirmWipeDialog(QDialog):
         parent=None,
     ) -> None:
         super().__init__(parent)
-        self._challenge = _serial_challenge(assessment.disk.serial_number)
+        self._challenge = (
+            _serial_challenge(assessment.disk.serial_number)
+            if simulated
+            else assessment.disk.serial_number.strip().upper()
+        )
         self.setWindowTitle("Confirm simulated wipe" if simulated else "SECURE ERASE")
         self.setModal(True)
         self.setMinimumWidth(500)
@@ -46,7 +50,8 @@ class ConfirmWipeDialog(QDialog):
         form.addRow("Unique ID:", _wrapping_label(disk.unique_id))
 
         instruction = QLabel(
-            f"Type the first four characters of the serial number ({self._challenge}) "
+            f"Type {'the first four characters of ' if simulated else 'the complete '}"
+            f"serial number ({self._challenge}) "
             "to authorize this job:"
         )
         instruction.setWordWrap(True)

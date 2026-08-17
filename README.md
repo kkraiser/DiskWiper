@@ -111,8 +111,13 @@ independent experimental gate and an explicit backend selection:
 ```powershell
 $env:DISKWIPER_ENABLE_REAL_WIPES = "I_UNDERSTAND_THIS_DESTROYS_DATA"
 $env:DISKWIPER_ENABLE_NATIVE_WIPES = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL"
-python -m diskwiper.main --enable-real-wipes --real-backend native
+python -m diskwiper.main --enable-real-wipes --real-backend native `
+  --native-test-target "SERIAL:SIZE_BYTES"
 ```
+
+During the controlled test phase, native mode also requires
+`--native-test-target SERIAL:SIZE_BYTES`. The backend checks this target before
+and after volume locking, in addition to its full fingerprint checks.
 
 Omitting either environment gate, the command-line flag, or the native backend
 selection starts the application without an enabled native destructive path.
