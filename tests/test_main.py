@@ -27,6 +27,14 @@ def test_native_preflight_accepts_an_explicit_disk_number() -> None:
 
 def test_native_test_target_is_explicit() -> None:
     args = build_parser().parse_args(
-        ["--native-test-target", "21A000000419:150038863360"]
+        [
+            "--native-test-target",
+            "21A000000419:150038863360",
+            "--native-test-target",
+            "31A000000419:18000207937536",
+        ]
     )
-    assert args.native_test_target == "21A000000419:150038863360"
+    assert args.native_test_target == [
+        "21A000000419:150038863360",
+        "31A000000419:18000207937536",
+    ]

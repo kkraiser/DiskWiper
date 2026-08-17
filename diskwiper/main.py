@@ -34,8 +34,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument(
         "--native-test-target",
+        action="append",
+        default=[],
         metavar="SERIAL:SIZE_BYTES",
-        help="Bind experimental native writes to one exact serial and capacity",
+        help="Arm one exact native target; repeat once for each disk",
     )
     parser.add_argument(
         "--data-dir",
@@ -71,7 +73,7 @@ def main(argv: list[str] | None = None) -> int:
         data_dir=(args.data_dir or default_data_dir()).resolve(),
         real_wipes_requested=args.enable_real_wipes,
         real_backend=args.real_backend,
-        native_test_target=args.native_test_target,
+        native_test_targets=tuple(args.native_test_target),
         simulation_seconds=max(1, args.simulation_seconds),
     )
     config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -122,7 +124,7 @@ def main(argv: list[str] | None = None) -> int:
             protection_policy=policy,
             real_wipes_enabled=config.real_wipes_enabled,
             is_admin=is_administrator,
-            expected_test_target=config.native_test_target,
+            expected_test_targets=config.native_test_targets,
         )
     else:
         real_backend = DiskPartBackend(

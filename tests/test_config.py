@@ -15,7 +15,7 @@ def test_native_requires_both_independent_gates(monkeypatch, tmp_path) -> None:
         tmp_path,
         real_wipes_requested=True,
         real_backend="native",
-        native_test_target="SERIAL:1234",
+        native_test_targets=("SERIAL:1234",),
     )
     assert not config.real_wipes_enabled
 
@@ -29,7 +29,7 @@ def test_native_gate_does_not_replace_general_gate(monkeypatch, tmp_path) -> Non
         tmp_path,
         real_wipes_requested=True,
         real_backend="native",
-        native_test_target="SERIAL:1234",
+        native_test_targets=("SERIAL:1234",),
     )
     assert not config.real_wipes_enabled
 

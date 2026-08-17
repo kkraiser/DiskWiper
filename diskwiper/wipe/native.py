@@ -26,6 +26,7 @@ class NativeRawWriteBackend:
     name = "native-zero-overwrite"
     simulated = False
     supports_cancel = True
+    supports_parallel_real = True
 
     def __init__(
         self,
@@ -33,7 +34,7 @@ class NativeRawWriteBackend:
         protection_policy: ProtectionPolicy,
         real_wipes_enabled: bool,
         is_admin: Callable[[], bool],
-        expected_test_target: str | None,
+        expected_test_targets: Iterable[str],
         *,
         raw_disk_factory: RawDiskFactory = WindowsRawDisk,
         volume_locker: VolumeLocker = LockedVolumes,
@@ -46,7 +47,9 @@ class NativeRawWriteBackend:
         self._policy = protection_policy
         self._real_wipes_enabled = real_wipes_enabled
         self._is_admin = is_admin
-        self._expected_test_target = expected_test_target
+        self._expected_test_targets = frozenset(
+            normalize_identifier(target) for target in expected_test_targets if target
+        )
         self._raw_disk_factory = raw_disk_factory
         self._volume_locker = volume_locker
         self._chunk_size = chunk_size
@@ -144,14 +147,13 @@ class NativeRawWriteBackend:
         self._policy = policy
 
     def _validate_test_target(self, disk: PhysicalDisk) -> None:
-        expected = normalize_identifier(self._expected_test_target)
         actual = normalize_identifier(f"{disk.serial_number}:{disk.size_bytes}")
-        if not expected:
-            raise BackendError("Experimental native test target is not configured")
-        if actual != expected:
+        if not self._expected_test_targets:
+            raise BackendError("Experimental native test targets are not configured")
+        if actual not in self._expected_test_targets:
             raise BackendError(
                 "Selected disk does not match the armed native test target: "
-                f"expected {expected}, found {actual}"
+                f"armed targets {sorted(self._expected_test_targets)}, found {actual}"
             )
 
     def _revalidate(self, authorization: WipeAuthorization) -> PhysicalDisk:

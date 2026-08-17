@@ -32,6 +32,7 @@ class HeldRealBackend:
     name = "held-real-backend"
     simulated = False
     supports_cancel = False
+    supports_parallel_real = False
 
     def __init__(self) -> None:
         self.entered = threading.Event()
@@ -48,6 +49,7 @@ class ProgressThenFailBackend:
     name = "progress-then-fail"
     simulated = False
     supports_cancel = True
+    supports_parallel_real = True
 
     def run(self, authorization, cancel_event, report):
         del cancel_event
@@ -96,7 +98,7 @@ def test_only_one_real_backend_job_can_be_active(tmp_path) -> None:
     manager.start(_assessment(make_disk()), "one", backend)
     assert backend.entered.wait(timeout=2)
 
-    with pytest.raises(ValueError, match="Only one physical wipe"):
+    with pytest.raises(ValueError, match="Only parallel-capable native wipes"):
         manager.start(_assessment(_second_disk()), "two", backend)
 
     backend.release.set()
@@ -149,3 +151,21 @@ def test_terminal_error_preserves_last_confirmed_byte_count(tmp_path) -> None:
     assert len(terminal) == 1
     assert terminal[0].bytes_processed == 4096
     assert terminal[0].total_bytes == 8192
+
+
+def test_parallel_capable_real_jobs_can_run_together(tmp_path) -> None:
+    history = HistoryStore(tmp_path / "history.sqlite3")
+    history.initialize()
+    manager = JobManager(history, max_workers=2)
+    barrier = threading.Barrier(3)
+
+    class ParallelRealBackend(BarrierBackend):
+        name = "parallel-real"
+        simulated = False
+        supports_parallel_real = True
+
+    backend = ParallelRealBackend(barrier)
+    manager.start(_assessment(make_disk()), "one", backend)
+    manager.start(_assessment(_second_disk()), "two", backend)
+    barrier.wait(timeout=2)
+    manager.shutdown()

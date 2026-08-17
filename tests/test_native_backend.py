@@ -83,14 +83,14 @@ def make_backend(discovery, raw, captured_locks, **changes):
         protection_policy=ProtectionPolicy(frozenset()),
         real_wipes_enabled=True,
         is_admin=lambda: True,
-        expected_test_target=None,
+        expected_test_targets=(),
         raw_disk_factory=lambda _number: raw,
         volume_locker=lambda paths: FakeLocker(paths, captured_locks),
         chunk_size=4096,
     )
     options.update(changes)
-    options["expected_test_target"] = options.get("expected_test_target") or (
-        f"SERIAL1234:{raw.size_bytes}"
+    options["expected_test_targets"] = options.get("expected_test_targets") or (
+        f"SERIAL1234:{raw.size_bytes}",
     )
     return NativeRawWriteBackend(**options)
 
@@ -218,7 +218,7 @@ def test_native_backend_rejects_disk_outside_armed_test_target() -> None:
         SequenceDiscovery(disk),
         raw,
         [],
-        expected_test_target="DIFFERENT:4096",
+        expected_test_targets=("DIFFERENT:4096",),
     )
 
     with pytest.raises(BackendError, match="does not match the armed"):

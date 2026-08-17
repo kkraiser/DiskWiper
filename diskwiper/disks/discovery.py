@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import subprocess
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -87,8 +88,13 @@ $items = @(
 class PowerShellDiskDiscovery:
     def __init__(self, timeout_seconds: int = 30) -> None:
         self._timeout_seconds = timeout_seconds
+        self._lock = threading.Lock()
 
     def discover(self) -> DiskInventory:
+        with self._lock:
+            return self._discover_once()
+
+    def _discover_once(self) -> DiskInventory:
         encoded = base64.b64encode(_DISCOVERY_SCRIPT.encode("utf-16-le")).decode("ascii")
         creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:

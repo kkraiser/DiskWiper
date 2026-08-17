@@ -21,7 +21,7 @@ class AppConfig:
     data_dir: Path
     real_wipes_requested: bool = False
     real_backend: str = "diskpart"
-    native_test_target: str | None = None
+    native_test_targets: tuple[str, ...] = ()
     simulation_seconds: int = 20
     refresh_seconds: int = 60
 
@@ -35,7 +35,7 @@ class AppConfig:
         if self.real_backend == "native":
             return (
                 general_gate
-                and bool(self.native_test_target)
+                and bool(self.native_test_targets)
                 and os.environ.get("DISKWIPER_ENABLE_NATIVE_WIPES")
                 == NATIVE_WIPE_ENV_VALUE
             )

@@ -92,6 +92,7 @@ class DiskPartBackend:
     name = "diskpart-clean-all"
     simulated = False
     supports_cancel = False
+    supports_parallel_real = False
 
     def __init__(
         self,

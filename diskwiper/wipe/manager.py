@@ -59,7 +59,16 @@ class JobManager:
             if not backend.simulated and any(
                 not job.backend.simulated for job in self._active.values()
             ):
-                raise ValueError("Only one physical wipe may run at a time")
+                active_real = next(
+                    job.backend
+                    for job in self._active.values()
+                    if not job.backend.simulated
+                )
+                if not (
+                    getattr(backend, "supports_parallel_real", False)
+                    and getattr(active_real, "supports_parallel_real", False)
+                ):
+                    raise ValueError("Only parallel-capable native wipes may overlap")
 
             disk = assessment.disk
             authorization = WipeAuthorization(

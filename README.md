@@ -115,9 +115,11 @@ python -m diskwiper.main --enable-real-wipes --real-backend native `
   --native-test-target "SERIAL:SIZE_BYTES"
 ```
 
-During the controlled test phase, native mode also requires
-`--native-test-target SERIAL:SIZE_BYTES`. The backend checks this target before
-and after volume locking, in addition to its full fingerprint checks.
+During the controlled test phase, native mode also requires at least one
+`--native-test-target SERIAL:SIZE_BYTES`. Repeat the option to arm multiple exact
+targets. The backend checks each selected disk against the armed set before and
+after volume locking, in addition to its full fingerprint checks. Only the native
+backend permits overlapping physical jobs; DiskPart remains single-job.
 
 Omitting either environment gate, the command-line flag, or the native backend
 selection starts the application without an enabled native destructive path.
