@@ -20,6 +20,8 @@ class RawWriteDevice(Protocol):
 
     def flush(self) -> None: ...
 
+    def update_properties(self) -> None: ...
+
 
 ProgressReporter = Callable[[int, int], None]
 

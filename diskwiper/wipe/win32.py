@@ -25,6 +25,7 @@ PAGE_READWRITE = 0x04
 
 IOCTL_DISK_GET_LENGTH_INFO = 0x0007405C
 IOCTL_STORAGE_QUERY_PROPERTY = 0x002D1400
+IOCTL_DISK_UPDATE_PROPERTIES = 0x00070140
 FSCTL_LOCK_VOLUME = 0x00090018
 FSCTL_DISMOUNT_VOLUME = 0x00090020
 
@@ -121,6 +122,20 @@ class WindowsRawDisk:
     def flush(self) -> None:
         if not self._kernel32.FlushFileBuffers(self._require_open()):
             raise _last_error("Could not flush raw disk writes")
+
+    def update_properties(self) -> None:
+        returned = wintypes.DWORD()
+        if not self._kernel32.DeviceIoControl(
+            self._require_open(),
+            IOCTL_DISK_UPDATE_PROPERTIES,
+            None,
+            0,
+            None,
+            0,
+            ctypes.byref(returned),
+            None,
+        ):
+            raise _last_error("Could not refresh raw disk properties")
 
     def close(self) -> None:
         if self._zero_buffer is not None:

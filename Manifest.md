@@ -1101,21 +1101,51 @@ hub. The observed ~39.5 MB/s wipe throughput is consistent with USB 2.0. Other
 ASMedia SuperSpeed hubs visible on the PC were traced to unrelated controller
 paths, not this enclosure.
 
-## Next test on Intel PC
+## USB performance resolution
 
-Connect the DS-SC4B directly to a known 10 Gbps port on the Intel PC, fully
-power-cycle the enclosure, and check:
+A cable explicitly labelled `USB 3.2 10Gbps` resolved the USB 2.0 fallback on
+the AMD PC. All four bays now enumerate over UAS beneath:
 
-1. Whether every bay and expected capacity is enumerated.
-2. Whether the bay devices still use UAS.
-3. Whether their immediate parent is still `VID_2109&PID_2822` / `USB2.0 Hub`.
-4. Whether the read benchmark remains near 40 MB/s or rises above USB 2.0
-   throughput.
-5. If it remains USB 2.0 on the Intel PC, contact Sabrent for firmware guidance
-   or replacement; the evidence then strongly isolates the enclosure.
+```text
+USB\VID_2109&PID_0822\MSFT30000000001
+Friendly name:   Generic SuperSpeed USB Hub
+Bus description: USB3.1 Hub
+Parent:          USB Root Hub (USB 3.0)
+Controller:      AMD USB 3.10 eXtensible Host Controller
+```
 
-Do not enable destructive mode merely to test link speed. Use inventory and the
-read-only benchmark first.
+DiskWiper's read-only benchmark also reports substantially higher throughput.
+The earlier `PID_2822` / `USB2.0 Hub` path and approximately 39.5 MB/s ceiling
+were therefore caused by the USB connection falling back to USB 2.0. Testing
+on the Intel PC is no longer required to isolate this issue.
+
+## Backlog: drive temperature and SMART diagnostics
+
+Explore an optional per-disk `Temperature` column without making SMART support
+a requirement for inventory or wiping. The feature must run asynchronously,
+display an unavailable value when a bridge does not expose telemetry, and avoid
+diagnostic polling while a disk has an active wipe job.
+
+Evidence from the current Sabrent DS-SC4B / ASM235CM enclosure:
+
+- Windows `Get-PhysicalDisk` returns no temperature for any of the four bays.
+- `Get-StorageReliabilityCounter` cannot retrieve a CIM reliability resource
+  for any bay.
+- smartmontools 7.5 `smartctl --scan-open` identifies disks 3 through 6 as SAT
+  candidates but fails to open them with Windows error 5.
+- `smartctl -a -d sat \\.\PhysicalDrive3` fails with `Invalid argument`.
+
+Future options to investigate:
+
+1. Test other documented smartctl device types or permissions only when doing
+   so is read-only and the disk identity can be revalidated.
+2. Determine whether HWiNFO can read temperatures through this bridge and, if
+   so, whether its shared-memory sensor interface can be consumed safely as an
+   optional integration while HWiNFO is running.
+3. Keep the UI provider-neutral: Windows reliability counters, smartctl, or an
+   external sensor provider may supply a temperature, otherwise show `—`.
+
+Do not add HWiNFO or smartmontools as a mandatory runtime dependency.
 
 ---
 
