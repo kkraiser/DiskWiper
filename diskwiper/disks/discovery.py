@@ -48,6 +48,7 @@ $items = @(
                 DriveLetter = if ($volume) { [string]$volume.DriveLetter } else { $null }
                 Label = if ($volume) { [string]$volume.FileSystemLabel } else { $null }
                 Path = if ($accessPaths.Count -gt 0) { [string]$accessPaths[0] } else { $null }
+                AccessPaths = @($accessPaths | ForEach-Object { [string]$_ })
                 Size = if ($volume) { [uint64]$volume.Size } else { [uint64]$partition.Size }
             }
         }
@@ -138,6 +139,11 @@ class PowerShellDiskDiscovery:
                 drive_letter=_optional_text(volume.get("DriveLetter")),
                 label=_optional_text(volume.get("Label")),
                 path=_optional_text(volume.get("Path")),
+                access_paths=tuple(
+                    path
+                    for value in _as_list(volume.get("AccessPaths"))
+                    if (path := _optional_text(value))
+                ),
                 size_bytes=_optional_int(volume.get("Size")),
             )
             for volume in raw_volumes
@@ -183,3 +189,9 @@ def _optional_text(value: object) -> str | None:
 
 def _optional_int(value: object) -> int | None:
     return None if value is None else int(value)
+
+
+def _as_list(value: object) -> list[object]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]

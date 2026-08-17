@@ -38,6 +38,7 @@ class VolumeInfo:
     drive_letter: str | None = None
     label: str | None = None
     path: str | None = None
+    access_paths: tuple[str, ...] = ()
     size_bytes: int | None = None
 
 

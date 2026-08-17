@@ -64,13 +64,13 @@ class DeviceGeometry:
 class WindowsRawDisk:
     """Unbuffered synchronous access to one Windows physical disk."""
 
-    def __init__(self, disk_number: int) -> None:
+    def __init__(self, disk_number: int, *, kernel32=None) -> None:
         if os.name != "nt":
             raise RawWriteError("Raw disk writing is only supported on Windows")
         if disk_number < 0:
             raise ValueError("Disk number cannot be negative")
 
-        self._kernel32 = _configure_kernel32()
+        self._kernel32 = kernel32 or _configure_kernel32()
         self._handle: int | None = None
         self._zero_buffer: int | None = None
         self._zero_buffer_size = 0
@@ -223,10 +223,10 @@ class WindowsRawDisk:
 class LockedVolumes:
     """Own exclusive locks for all supplied volumes until the context exits."""
 
-    def __init__(self, volume_paths: Iterable[str]) -> None:
+    def __init__(self, volume_paths: Iterable[str], *, kernel32=None) -> None:
         if os.name != "nt":
             raise RawWriteError("Volume locking is only supported on Windows")
-        self._kernel32 = _configure_kernel32()
+        self._kernel32 = kernel32 or _configure_kernel32()
         self._handles: list[int] = []
         try:
             for source_path in volume_paths:

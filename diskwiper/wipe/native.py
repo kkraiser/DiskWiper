@@ -168,13 +168,25 @@ def _lockable_volume_paths(disk: PhysicalDisk) -> tuple[str, ...]:
         )
     paths: list[str] = []
     for volume in disk.volumes:
-        candidate = volume.drive_letter or volume.path
-        if not candidate:
+        candidates = (*volume.access_paths, volume.path, volume.drive_letter)
+        normalized_candidates: list[str] = []
+        for candidate in candidates:
+            if not candidate:
+                continue
+            try:
+                normalized_candidates.append(volume_device_path(candidate))
+            except RawWriteError:
+                continue
+        if not normalized_candidates:
             raise BackendError("A partition has no lockable volume access path")
-        try:
-            normalized = volume_device_path(candidate)
-        except RawWriteError as exc:
-            raise BackendError(str(exc)) from exc
+        normalized = next(
+            (
+                path
+                for path in normalized_candidates
+                if path.lower().startswith(r"\\?\volume{")
+            ),
+            normalized_candidates[0],
+        )
         if normalized in paths:
             raise BackendError("Duplicate volume access path discovered")
         paths.append(normalized)

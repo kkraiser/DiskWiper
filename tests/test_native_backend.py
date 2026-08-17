@@ -101,7 +101,7 @@ def test_native_backend_locks_revalidates_writes_and_verifies() -> None:
         lambda *event: events.append(event),
     )
 
-    assert locks == [(r"\\.\T:",)]
+    assert locks == [(r"\\?\Volume{test-volume}",)]
     assert raw.writes == [(0, 4096), (4096, 4096)]
     assert raw.flushed and raw.properties_updated
     assert result.status is JobStatus.COMPLETE
