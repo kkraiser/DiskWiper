@@ -1076,8 +1076,10 @@ The test validated volume locking and dismounting, post-lock identity and target
 revalidation, unbuffered aligned raw writes, live byte progress, throughput and
 ETA, explicit flush, Windows disk-property refresh, and final identity and
 partition verification. Read-only inventory captures before and after showed the
-same disk number, enclosure serial, and capacity. A power-cycle/history
-rediscovery check remains to complete the physical test protocol.
+same disk number, enclosure serial, and capacity. After an enclosure power-cycle,
+the target was reassigned from disk 4 to disk 3 and was correctly marked
+`PREVIOUSLY WIPED` in simulation mode. This confirms that history recognition
+survives disk-number reassignment and completes the physical test protocol.
 
 ## Test enclosure and identity behavior
 
