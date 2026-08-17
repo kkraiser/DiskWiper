@@ -24,7 +24,7 @@ from diskwiper.config import AppConfig
 from diskwiper.disks.benchmark import (
     BenchmarkError,
     benchmark_read_speed,
-    estimated_wipe_duration_range,
+    estimated_wipe_duration,
 )
 from diskwiper.disks.discovery import DiskDiscovery, DiskInventory, DiscoveryError
 from diskwiper.disks.protection import ProtectionPolicy
@@ -545,10 +545,8 @@ def _format_wipe_estimate(
 ) -> str:
     if read_bytes_per_second is None:
         return "Unavailable"
-    fastest, slowest = estimated_wipe_duration_range(
-        size_bytes, read_bytes_per_second
-    )
-    return f"{_format_approx_duration(fastest)}–{_format_approx_duration(slowest)}"
+    estimate = estimated_wipe_duration(size_bytes, read_bytes_per_second)
+    return _format_approx_duration(estimate)
 
 
 def _format_approx_duration(seconds: float) -> str:

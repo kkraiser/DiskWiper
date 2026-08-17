@@ -20,7 +20,7 @@ def test_complete_status_remains_green() -> None:
 
 def test_read_speed_and_wipe_estimate_are_human_readable() -> None:
     assert _format_read_speed(100_000_000) == "100.0 MB/s"
-    assert _format_wipe_estimate(120_000_000_000, 100_000_000) == "~25m–~50m"
+    assert _format_wipe_estimate(120_000_000_000, 100_000_000) == "~33m"
 
 
 def test_live_write_speed_and_eta_use_confirmed_progress() -> None:
