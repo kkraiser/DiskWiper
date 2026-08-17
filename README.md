@@ -88,6 +88,24 @@ The DiskPart MVP intentionally permits only one real wipe at a time and does not
 display a percentage. Parallel physical wipes will use the later native raw-write
 backend; parallel simulation is already supported.
 
+## Experimental native backend
+
+The native raw-write backend is available for development but has not yet passed
+a controlled physical-disk test. DiskPart remains the default destructive backend.
+Selecting native mode requires the normal destructive gate plus a second,
+independent experimental gate and an explicit backend selection:
+
+```powershell
+$env:DISKWIPER_ENABLE_REAL_WIPES = "I_UNDERSTAND_THIS_DESTROYS_DATA"
+$env:DISKWIPER_ENABLE_NATIVE_WIPES = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL"
+python -m diskwiper.main --enable-real-wipes --real-backend native
+```
+
+Omitting either environment gate, the command-line flag, or the native backend
+selection starts the application without an enabled native destructive path.
+Do not use this mode on a disk containing valuable data. Its first physical test
+must use an expendable disk with unrelated storage disconnected.
+
 ## Important limitation
 
 DiskPart `clean all` writes zeros to the addressable sectors exposed by the drive.

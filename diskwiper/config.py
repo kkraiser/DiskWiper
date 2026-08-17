@@ -6,6 +6,7 @@ from pathlib import Path
 
 
 REAL_WIPE_ENV_VALUE = "I_UNDERSTAND_THIS_DESTROYS_DATA"
+NATIVE_WIPE_ENV_VALUE = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL"
 
 
 def default_data_dir() -> Path:
@@ -19,16 +20,30 @@ def default_data_dir() -> Path:
 class AppConfig:
     data_dir: Path
     real_wipes_requested: bool = False
+    real_backend: str = "diskpart"
     simulation_seconds: int = 20
     refresh_seconds: int = 60
 
     @property
     def real_wipes_enabled(self) -> bool:
-        return (
+        general_gate = (
             self.real_wipes_requested
             and os.environ.get("DISKWIPER_ENABLE_REAL_WIPES")
             == REAL_WIPE_ENV_VALUE
         )
+        if self.real_backend == "native":
+            return (
+                general_gate
+                and os.environ.get("DISKWIPER_ENABLE_NATIVE_WIPES")
+                == NATIVE_WIPE_ENV_VALUE
+            )
+        return general_gate
+
+    @property
+    def destructive_mode_description(self) -> str:
+        if self.real_backend == "native":
+            return "EXPERIMENTAL native raw zero overwrite"
+        return "DiskPart clean all"
 
     @property
     def database_path(self) -> Path:

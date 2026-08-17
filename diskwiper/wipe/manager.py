@@ -111,6 +111,13 @@ class JobManager:
         with self._lock:
             return frozenset(job.disk_number for job in self._active.values())
 
+    def can_cancel_disk(self, disk_number: int) -> bool:
+        with self._lock:
+            return any(
+                job.disk_number == disk_number and job.backend.supports_cancel
+                for job in self._active.values()
+            )
+
     def active_elapsed_seconds(self) -> dict[int, float]:
         now = time.monotonic()
         with self._lock:

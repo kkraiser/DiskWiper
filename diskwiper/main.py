@@ -15,7 +15,7 @@ from diskwiper.disks.protection import (
 from diskwiper.history.database import HistoryStore
 from diskwiper.util.admin import is_administrator
 from diskwiper.util.logging import configure_logging
-from diskwiper.wipe.backends import DiskPartBackend, SimulationBackend
+from diskwiper.wipe.backends import DiskPartBackend, RealWipeBackend, SimulationBackend
 from diskwiper.wipe.manager import JobManager
 
 
@@ -24,7 +24,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--enable-real-wipes",
         action="store_true",
-        help="Request destructive DiskPart mode; also requires the safety environment gate",
+        help="Request destructive mode; also requires the backend safety gate(s)",
+    )
+    parser.add_argument(
+        "--real-backend",
+        choices=("diskpart", "native"),
+        default="diskpart",
+        help="Select the destructive backend; native requires an additional safety gate",
     )
     parser.add_argument(
         "--data-dir",
@@ -50,6 +56,7 @@ def main(argv: list[str] | None = None) -> int:
     config = AppConfig(
         data_dir=(args.data_dir or default_data_dir()).resolve(),
         real_wipes_requested=args.enable_real_wipes,
+        real_backend=args.real_backend,
         simulation_seconds=max(1, args.simulation_seconds),
     )
     config.data_dir.mkdir(parents=True, exist_ok=True)
@@ -73,8 +80,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.enable_real_wipes and not config.real_wipes_enabled:
         print(
-            "Real wipes were requested but the DISKWIPER_ENABLE_REAL_WIPES safety "
-            "gate is not set to the required value. Starting in simulation mode.",
+            "Real wipes were requested but all required safety gates for the "
+            f"{args.real_backend} backend are not set. Starting in simulation mode.",
             file=sys.stderr,
         )
     if config.real_wipes_enabled and not is_administrator():
@@ -89,12 +96,23 @@ def main(argv: list[str] | None = None) -> int:
     history.initialize()
     manager = JobManager(history)
     simulation = SimulationBackend(config.simulation_seconds)
-    diskpart = DiskPartBackend(
-        discovery=discovery,
-        protection_policy=policy,
-        real_wipes_enabled=config.real_wipes_enabled,
-        is_admin=is_administrator,
-    )
+    real_backend: RealWipeBackend
+    if config.real_backend == "native":
+        from diskwiper.wipe.native import NativeRawWriteBackend
+
+        real_backend = NativeRawWriteBackend(
+            discovery=discovery,
+            protection_policy=policy,
+            real_wipes_enabled=config.real_wipes_enabled,
+            is_admin=is_administrator,
+        )
+    else:
+        real_backend = DiskPartBackend(
+            discovery=discovery,
+            protection_policy=policy,
+            real_wipes_enabled=config.real_wipes_enabled,
+            is_admin=is_administrator,
+        )
 
     application = QApplication(sys.argv[:1])
     application.setApplicationName("DiskWiper")
@@ -105,7 +123,7 @@ def main(argv: list[str] | None = None) -> int:
         history=history,
         manager=manager,
         simulation_backend=simulation,
-        diskpart_backend=diskpart,
+        real_backend=real_backend,
     )
     window.show()
     return application.exec()

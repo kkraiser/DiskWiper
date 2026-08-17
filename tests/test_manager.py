@@ -108,3 +108,19 @@ def test_active_elapsed_time_advances_without_backend_progress(tmp_path) -> None
     assert second > first
     backend.release.set()
     manager.shutdown()
+
+
+def test_manager_reports_backend_cancellation_capability(tmp_path) -> None:
+    history = HistoryStore(tmp_path / "history.sqlite3")
+    history.initialize()
+    manager = JobManager(history)
+    backend = HeldRealBackend()
+    disk = make_disk()
+    manager.start(_assessment(disk), "one", backend)
+    assert backend.entered.wait(timeout=2)
+
+    assert not manager.can_cancel_disk(disk.disk_number)
+    assert not manager.can_cancel_disk(999)
+
+    backend.release.set()
+    manager.shutdown()

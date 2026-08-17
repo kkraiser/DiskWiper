@@ -32,7 +32,7 @@ from diskwiper.disks.protection import add_protected_stable_keys
 from diskwiper.domain.models import DiskAssessment, DiskStatus, JobProgress, JobStatus
 from diskwiper.gui.confirm_dialog import ConfirmWipeDialog
 from diskwiper.history.database import HistoryStore
-from diskwiper.wipe.backends import DiskPartBackend, SimulationBackend
+from diskwiper.wipe.backends import RealWipeBackend, SimulationBackend
 from diskwiper.wipe.manager import JobManager
 
 
@@ -83,7 +83,7 @@ class MainWindow(QMainWindow):
         history: HistoryStore,
         manager: JobManager,
         simulation_backend: SimulationBackend,
-        diskpart_backend: DiskPartBackend,
+        real_backend: RealWipeBackend,
     ) -> None:
         super().__init__()
         self._config = config
@@ -92,7 +92,7 @@ class MainWindow(QMainWindow):
         self._history = history
         self._manager = manager
         self._simulation_backend = simulation_backend
-        self._diskpart_backend = diskpart_backend
+        self._real_backend = real_backend
         self._inventory: DiskInventory | None = None
         self._assessments: dict[int, DiskAssessment] = {}
         self._progress: dict[str, JobProgress] = {}
@@ -112,7 +112,7 @@ class MainWindow(QMainWindow):
         self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
         mode_text = (
-            "DESTRUCTIVE MODE — DiskPart clean all is enabled"
+            f"DESTRUCTIVE MODE — {config.destructive_mode_description} is enabled"
             if config.real_wipes_enabled
             else "SIMULATION MODE — no physical erase command can execute"
         )
@@ -306,8 +306,9 @@ class MainWindow(QMainWindow):
             action = QPushButton()
             active = disk.disk_number in self._manager.active_disk_numbers()
             if active:
-                action.setText("Cancel" if not self._config.real_wipes_enabled else "Running")
-                action.setEnabled(not self._config.real_wipes_enabled)
+                cancellable = self._manager.can_cancel_disk(disk.disk_number)
+                action.setText("Cancel" if cancellable else "Running")
+                action.setEnabled(cancellable)
                 action.clicked.connect(
                     lambda _checked=False, number=disk.disk_number: self._cancel_disk(number)
                 )
@@ -355,7 +356,7 @@ class MainWindow(QMainWindow):
         dialog = ConfirmWipeDialog(assessment, simulated=simulated, parent=self)
         if dialog.exec() != ConfirmWipeDialog.DialogCode.Accepted:
             return False
-        backend = self._simulation_backend if simulated else self._diskpart_backend
+        backend = self._simulation_backend if simulated else self._real_backend
         try:
             self._manager.start(assessment, self._inventory.generation, backend)
         except ValueError as exc:
@@ -414,7 +415,7 @@ class MainWindow(QMainWindow):
             protected_serial_numbers=protected.serial_numbers,
             protected_unique_ids=protected.unique_ids,
         )
-        self._diskpart_backend.set_protection_policy(self._policy)
+        self._real_backend.set_protection_policy(self._policy)
         for key in keys:
             self._progress.pop(key, None)
         if self._inventory is not None:
@@ -426,7 +427,7 @@ class MainWindow(QMainWindow):
             QMessageBox.information(
                 self,
                 "Cannot cancel",
-                "No cancellable simulation is active for this disk.",
+                "No cancellable wipe is active for this disk.",
             )
 
     def _refresh_elapsed_cells(self) -> None:

@@ -43,6 +43,10 @@ class WipeBackend(Protocol):
     ) -> BackendResult: ...
 
 
+class RealWipeBackend(WipeBackend, Protocol):
+    def set_protection_policy(self, policy: ProtectionPolicy) -> None: ...
+
+
 class SimulationBackend:
     name = "simulated-zero-overwrite"
     simulated = True
