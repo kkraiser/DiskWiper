@@ -11,4 +11,5 @@ build/
 *.log
 *.sqlite3
 *.db
-
+native-before.txt
+native-after.txt

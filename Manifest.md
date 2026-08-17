@@ -1053,6 +1053,32 @@ Power-cycle:      disk rediscovered and recognized from wipe history
 
 This corresponds to roughly 39.5 MB/s and led to investigation of the USB link.
 
+## Completed native destructive test
+
+The first native Win32 raw-write test completed successfully on the expendable
+150 GB disk in position P2:
+
+```text
+Method:            native-zero-overwrite
+Disk at start:     4
+Enclosure serial:  21A000000419
+Capacity:          150038863360 bytes
+Started (UTC):     2026-08-17 01:49:59
+Completed (UTC):   2026-08-17 02:22:04
+Elapsed:           00:32:04.9
+Confirmed bytes:   150038863360
+Average throughput: approximately 77.9 MB/s
+Terminal status:   COMPLETE
+Post-check:        zero partitions
+```
+
+The test validated volume locking and dismounting, post-lock identity and target
+revalidation, unbuffered aligned raw writes, live byte progress, throughput and
+ETA, explicit flush, Windows disk-property refresh, and final identity and
+partition verification. Read-only inventory captures before and after showed the
+same disk number, enclosure serial, and capacity. A power-cycle/history
+rediscovery check remains to complete the physical test protocol.
+
 ## Test enclosure and identity behavior
 
 Enclosure:
