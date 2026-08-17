@@ -35,6 +35,19 @@ the GUI:
 python -m diskwiper.main --inventory-only
 ```
 
+To exercise the native physical-device discovery and geometry checks without
+locking, dismounting, or writing, run a read-only preflight for an eligible disk:
+
+```powershell
+python -m diskwiper.main --native-preflight 4
+```
+
+The disk number is only used to locate the device for this invocation. DiskWiper
+checks its full fingerprint before and after opening a `GENERIC_READ` handle and
+compares independently queried length and sector geometry. Protected disks fail
+before the raw handle is opened. This command cannot be combined with
+`--enable-real-wipes`.
+
 Application data is stored under `%LOCALAPPDATA%\DiskWiper` by default. This
 includes the SQLite history database and rotating log.
 

@@ -12,6 +12,7 @@ from diskwiper.wipe.win32 import (
     validate_device_geometry,
     volume_device_path,
     WindowsRawDisk,
+    WindowsRawDiskProbe,
     LockedVolumes,
 )
 
@@ -144,3 +145,28 @@ def test_volume_locker_locks_then_dismounts_and_closes_in_reverse() -> None:
 
     assert api.created == [r"\\.\T:", r"\\.\U:"]
     assert api.closed == [102, 101]
+
+
+def test_read_only_probe_requests_no_write_access_or_write_flags() -> None:
+    api = FakeKernel32()
+    calls = []
+    original = api.CreateFileW
+
+    def capture(path, access, sharing, security, creation, flags, template):
+        calls.append((path, access, sharing, flags))
+        return original(path, access, sharing, security, creation, flags, template)
+
+    api.CreateFileW = capture
+    with WindowsRawDiskProbe(4, kernel32=api) as probe:
+        assert probe.geometry == DeviceGeometry(8192, 512, 4096)
+
+    assert calls == [
+        (
+            r"\\.\PhysicalDrive4",
+            win32.GENERIC_READ,
+            win32.FILE_SHARE_READ | win32.FILE_SHARE_WRITE,
+            0,
+        )
+    ]
+    assert not api.writes
+    assert api.closed == [101]

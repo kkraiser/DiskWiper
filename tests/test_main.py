@@ -18,3 +18,8 @@ def test_native_backend_requires_explicit_parser_selection() -> None:
 def test_unknown_real_backend_is_rejected() -> None:
     with pytest.raises(SystemExit):
         build_parser().parse_args(["--real-backend", "unknown"])
+
+
+def test_native_preflight_accepts_an_explicit_disk_number() -> None:
+    args = build_parser().parse_args(["--native-preflight", "4"])
+    assert args.native_preflight == 4

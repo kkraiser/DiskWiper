@@ -48,11 +48,20 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Print a read-only protected/ready disk inventory and exit",
     )
+    parser.add_argument(
+        "--native-preflight",
+        type=int,
+        metavar="DISK_NUMBER",
+        help="Run read-only native handle and geometry checks for one eligible disk",
+    )
     return parser
 
 
 def main(argv: list[str] | None = None) -> int:
-    args = build_parser().parse_args(argv)
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.native_preflight is not None and args.enable_real_wipes:
+        parser.error("--native-preflight cannot be combined with --enable-real-wipes")
     config = AppConfig(
         data_dir=(args.data_dir or default_data_dir()).resolve(),
         real_wipes_requested=args.enable_real_wipes,
@@ -77,6 +86,8 @@ def main(argv: list[str] | None = None) -> int:
 
     if args.inventory_only:
         return _print_inventory(discovery, policy)
+    if args.native_preflight is not None:
+        return _run_native_preflight(discovery, policy, args.native_preflight)
 
     if args.enable_real_wipes and not config.real_wipes_enabled:
         print(
@@ -147,6 +158,30 @@ def _print_inventory(
         )
         for reason in assessment.protection_reasons:
             print(f"  - {reason}")
+    return 0
+
+
+def _run_native_preflight(
+    discovery: PowerShellDiskDiscovery,
+    policy: ProtectionPolicy,
+    disk_number: int,
+) -> int:
+    from diskwiper.wipe.preflight import PreflightError, run_native_preflight
+
+    try:
+        result = run_native_preflight(discovery, policy, disk_number)
+    except PreflightError as exc:
+        print(f"Native preflight failed: {exc}", file=sys.stderr)
+        return 1
+    geometry = result.geometry
+    print("READ-ONLY native preflight passed")
+    print(f"Disk: {result.disk_number}")
+    print(f"Model: {result.model or 'Unknown'}")
+    print(f"Serial: {result.serial_number}")
+    print(f"Size: {geometry.size_bytes} bytes")
+    print(f"Logical sector: {geometry.logical_sector_size} bytes")
+    print(f"Physical sector: {geometry.physical_sector_size} bytes")
+    print("No volume locks, dismounts, or writes were requested.")
     return 0
 
 

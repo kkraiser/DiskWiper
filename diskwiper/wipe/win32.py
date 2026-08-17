@@ -156,44 +156,7 @@ class WindowsRawDisk:
         self.close()
 
     def _query_geometry(self) -> DeviceGeometry:
-        handle = self._require_open()
-        length = ctypes.c_longlong()
-        returned = wintypes.DWORD()
-        if not self._kernel32.DeviceIoControl(
-            handle,
-            IOCTL_DISK_GET_LENGTH_INFO,
-            None,
-            0,
-            ctypes.byref(length),
-            ctypes.sizeof(length),
-            ctypes.byref(returned),
-            None,
-        ):
-            raise _last_error("Could not query raw disk length")
-
-        query = _StoragePropertyQuery(
-            STORAGE_ACCESS_ALIGNMENT_PROPERTY,
-            PROPERTY_STANDARD_QUERY,
-        )
-        alignment = _StorageAccessAlignmentDescriptor()
-        if not self._kernel32.DeviceIoControl(
-            handle,
-            IOCTL_STORAGE_QUERY_PROPERTY,
-            ctypes.byref(query),
-            ctypes.sizeof(query),
-            ctypes.byref(alignment),
-            ctypes.sizeof(alignment),
-            ctypes.byref(returned),
-            None,
-        ):
-            raise _last_error("Could not query raw disk sector alignment")
-        geometry = DeviceGeometry(
-            size_bytes=int(length.value),
-            logical_sector_size=int(alignment.bytes_per_logical_sector),
-            physical_sector_size=int(alignment.bytes_per_physical_sector),
-        )
-        validate_device_geometry(geometry)
-        return geometry
+        return _query_device_geometry(self._kernel32, self._require_open())
 
     def _get_zero_buffer(self, length: int) -> int:
         if length > self._zero_buffer_size:
@@ -271,6 +234,47 @@ class LockedVolumes:
             raise _last_error(message)
 
 
+class WindowsRawDiskProbe:
+    """Read-only physical-disk handle used by the native preflight command."""
+
+    def __init__(self, disk_number: int, *, kernel32=None) -> None:
+        if os.name != "nt":
+            raise RawWriteError("Raw disk probing is only supported on Windows")
+        if disk_number < 0:
+            raise ValueError("Disk number cannot be negative")
+        self._kernel32 = kernel32 or _configure_kernel32()
+        self._handle: int | None = None
+        path = physical_disk_path(disk_number)
+        handle = self._kernel32.CreateFileW(
+            path,
+            GENERIC_READ,
+            FILE_SHARE_READ | FILE_SHARE_WRITE,
+            None,
+            OPEN_EXISTING,
+            0,
+            None,
+        )
+        if handle == INVALID_HANDLE_VALUE:
+            raise _last_error(f"Could not open {path} for read-only probing")
+        self._handle = handle
+        try:
+            self.geometry = _query_device_geometry(self._kernel32, handle)
+        except Exception:
+            self.close()
+            raise
+
+    def close(self) -> None:
+        if self._handle is not None:
+            self._kernel32.CloseHandle(self._handle)
+            self._handle = None
+
+    def __enter__(self) -> WindowsRawDiskProbe:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        self.close()
+
+
 def physical_disk_path(disk_number: int) -> str:
     if disk_number < 0:
         raise ValueError("Disk number cannot be negative")
@@ -300,6 +304,46 @@ def validate_device_geometry(geometry: DeviceGeometry) -> None:
         raise RawWriteError("Physical sector size is not a multiple of logical size")
     if geometry.size_bytes % logical:
         raise RawWriteError("Raw disk length is not aligned to logical sectors")
+
+
+def _query_device_geometry(kernel32, handle: int) -> DeviceGeometry:
+    length = ctypes.c_longlong()
+    returned = wintypes.DWORD()
+    if not kernel32.DeviceIoControl(
+        handle,
+        IOCTL_DISK_GET_LENGTH_INFO,
+        None,
+        0,
+        ctypes.byref(length),
+        ctypes.sizeof(length),
+        ctypes.byref(returned),
+        None,
+    ):
+        raise _last_error("Could not query raw disk length")
+
+    query = _StoragePropertyQuery(
+        STORAGE_ACCESS_ALIGNMENT_PROPERTY,
+        PROPERTY_STANDARD_QUERY,
+    )
+    alignment = _StorageAccessAlignmentDescriptor()
+    if not kernel32.DeviceIoControl(
+        handle,
+        IOCTL_STORAGE_QUERY_PROPERTY,
+        ctypes.byref(query),
+        ctypes.sizeof(query),
+        ctypes.byref(alignment),
+        ctypes.sizeof(alignment),
+        ctypes.byref(returned),
+        None,
+    ):
+        raise _last_error("Could not query raw disk sector alignment")
+    geometry = DeviceGeometry(
+        size_bytes=int(length.value),
+        logical_sector_size=int(alignment.bytes_per_logical_sector),
+        physical_sector_size=int(alignment.bytes_per_physical_sector),
+    )
+    validate_device_geometry(geometry)
+    return geometry
 
 
 def _last_error(message: str) -> RawWriteError:
