@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import threading
+import time
 from contextlib import AbstractContextManager
 from typing import Callable, Iterable, Protocol
 
@@ -35,6 +36,9 @@ class NativeRawWriteBackend:
         raw_disk_factory: RawDiskFactory = WindowsRawDisk,
         volume_locker: VolumeLocker = LockedVolumes,
         chunk_size: int = 16 * 1024 * 1024,
+        progress_interval_seconds: float = 0.5,
+        progress_interval_bytes: int = 256 * 1024 * 1024,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._discovery = discovery
         self._policy = protection_policy
@@ -43,6 +47,9 @@ class NativeRawWriteBackend:
         self._raw_disk_factory = raw_disk_factory
         self._volume_locker = volume_locker
         self._chunk_size = chunk_size
+        self._progress_interval_seconds = progress_interval_seconds
+        self._progress_interval_bytes = progress_interval_bytes
+        self._clock = clock
 
     def run(
         self,
@@ -73,14 +80,28 @@ class NativeRawWriteBackend:
 
                 with self._raw_disk_factory(locked_disk.disk_number) as raw_disk:
                     self._validate_raw_geometry(authorization, raw_disk)
+                    last_report_time = self._clock()
+                    last_report_bytes = 0
 
                     def progress(written: int, total: int) -> None:
+                        nonlocal last_report_time, last_report_bytes
+                        now = self._clock()
+                        should_report = (
+                            written == 0
+                            or written == total
+                            or now - last_report_time >= self._progress_interval_seconds
+                            or written - last_report_bytes >= self._progress_interval_bytes
+                        )
+                        if not should_report:
+                            return
                         report(
                             JobStatus.WIPING,
                             "Writing zero pattern with native raw I/O",
                             written,
                             total,
                         )
+                        last_report_time = now
+                        last_report_bytes = written
 
                     result = overwrite_with_zeros(
                         raw_disk,

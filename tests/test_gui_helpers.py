@@ -1,7 +1,8 @@
-from diskwiper.domain.models import DiskStatus, JobStatus
+from diskwiper.domain.models import DiskStatus, JobProgress, JobStatus
 from diskwiper.gui.confirm_dialog import _serial_challenge
 from diskwiper.gui.main_window import MainWindow, _status_color
 from diskwiper.gui.main_window import _format_read_speed, _format_wipe_estimate
+from diskwiper.gui.main_window import _format_live_eta, _format_write_speed
 
 
 def test_serial_challenge_uses_first_four_characters() -> None:
@@ -20,6 +21,19 @@ def test_complete_status_remains_green() -> None:
 def test_read_speed_and_wipe_estimate_are_human_readable() -> None:
     assert _format_read_speed(100_000_000) == "100.0 MB/s"
     assert _format_wipe_estimate(120_000_000_000, 100_000_000) == "~25m–~50m"
+
+
+def test_live_write_speed_and_eta_use_confirmed_progress() -> None:
+    progress = JobProgress(
+        job_id="job",
+        status=JobStatus.WIPING,
+        disk_number=4,
+        elapsed_seconds=10,
+        bytes_processed=1_000_000_000,
+        total_bytes=7_000_000_000,
+    )
+    assert _format_write_speed(progress) == "100.0 MB/s"
+    assert _format_live_eta(progress) == "~1m"
 
 
 def test_every_table_column_has_a_bounded_initial_width() -> None:

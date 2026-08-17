@@ -185,3 +185,23 @@ def test_native_backend_requires_zero_partitions_after_write() -> None:
         backend.run(authorization_for(disk), threading.Event(), lambda *_: None)
 
     assert raw.flushed and raw.properties_updated
+
+
+def test_native_progress_is_throttled_but_always_reports_start_and_finish() -> None:
+    before = make_disk(size_bytes=12_288)
+    after = replace(before, partition_count=0, volumes=())
+    raw = FakeRawDisk(before)
+    events = []
+    backend = make_backend(
+        SequenceDiscovery(before, before, after),
+        raw,
+        [],
+        progress_interval_seconds=60,
+        progress_interval_bytes=1_000_000,
+        clock=lambda: 1.0,
+    )
+
+    backend.run(authorization_for(before), threading.Event(), lambda *event: events.append(event))
+
+    wiping = [event for event in events if event[0] is JobStatus.WIPING]
+    assert [event[2] for event in wiping] == [0, 12_288]

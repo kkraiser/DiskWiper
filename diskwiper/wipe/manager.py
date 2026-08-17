@@ -145,6 +145,8 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         started = time.monotonic()
+        last_bytes_processed: int | None = 0
+        last_total_bytes: int | None = authorization.size_bytes
 
         def report(
             status: JobStatus,
@@ -152,6 +154,11 @@ class JobManager:
             bytes_processed: int | None,
             total_bytes: int | None,
         ) -> None:
+            nonlocal last_bytes_processed, last_total_bytes
+            if bytes_processed is not None:
+                last_bytes_processed = bytes_processed
+            if total_bytes is not None:
+                last_total_bytes = total_bytes
             progress = JobProgress(
                 job_id=job_id,
                 status=status,
@@ -187,6 +194,8 @@ class JobManager:
                 elapsed_seconds=time.monotonic() - started,
                 stable_key=authorization.fingerprint.stable_key,
                 message=str(exc),
+                bytes_processed=last_bytes_processed,
+                total_bytes=last_total_bytes,
             )
         except Exception as exc:  # defensive job boundary
             logger.exception("Unexpected wipe worker failure")
@@ -197,6 +206,8 @@ class JobManager:
                 elapsed_seconds=time.monotonic() - started,
                 stable_key=authorization.fingerprint.stable_key,
                 message=f"Unexpected worker failure: {exc}",
+                bytes_processed=last_bytes_processed,
+                total_bytes=last_total_bytes,
             )
         self._history.finish_job(terminal)
         self._events.put(terminal)

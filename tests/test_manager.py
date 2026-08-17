@@ -9,7 +9,7 @@ import pytest
 from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.domain.models import JobStatus
 from diskwiper.history.database import HistoryStore
-from diskwiper.wipe.backends import BackendResult
+from diskwiper.wipe.backends import BackendError, BackendResult
 from diskwiper.wipe.manager import JobManager
 from tests.factories import make_disk
 
@@ -42,6 +42,17 @@ class HeldRealBackend:
         self.entered.set()
         assert self.release.wait(timeout=2)
         return BackendResult(JobStatus.COMPLETE, "done", 1)
+
+
+class ProgressThenFailBackend:
+    name = "progress-then-fail"
+    simulated = False
+    supports_cancel = True
+
+    def run(self, authorization, cancel_event, report):
+        del cancel_event
+        report(JobStatus.WIPING, "writing", 4096, authorization.size_bytes)
+        raise BackendError("device disconnected")
 
 
 def _assessment(disk):
@@ -124,3 +135,17 @@ def test_manager_reports_backend_cancellation_capability(tmp_path) -> None:
 
     backend.release.set()
     manager.shutdown()
+
+
+def test_terminal_error_preserves_last_confirmed_byte_count(tmp_path) -> None:
+    history = HistoryStore(tmp_path / "history.sqlite3")
+    history.initialize()
+    manager = JobManager(history)
+    disk = make_disk(size_bytes=8192)
+    manager.start(_assessment(disk), "one", ProgressThenFailBackend())
+    manager.shutdown()
+
+    terminal = [event for event in manager.drain_events() if event.status is JobStatus.ERROR]
+    assert len(terminal) == 1
+    assert terminal[0].bytes_processed == 4096
+    assert terminal[0].total_bytes == 8192

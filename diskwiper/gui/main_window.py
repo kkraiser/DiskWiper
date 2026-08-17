@@ -52,7 +52,7 @@ class MainWindow(QMainWindow):
         "Interface",
         "Position",
         "Volumes",
-        "Read Speed",
+        "Speed",
         "Est.",
         "Progress",
         "Elapsed",
@@ -265,6 +265,7 @@ class MainWindow(QMainWindow):
             benchmark_pending = benchmark_key in self._benchmark_futures
             read_speed = self._read_speeds.get(benchmark_key)
             status = progress.status.value if progress else assessment.status.value
+            active_write = progress is not None and progress.status is JobStatus.WIPING
             values = (
                 str(disk.disk_number),
                 status,
@@ -274,10 +275,16 @@ class MainWindow(QMainWindow):
                 disk.bus_type or "Unknown",
                 disk.enclosure_position or "—",
                 ", ".join(f"{letter}:" for letter in disk.drive_letters) or "—",
-                "Testing…" if benchmark_pending else _format_read_speed(read_speed),
-                "Testing…"
-                if benchmark_pending
-                else _format_wipe_estimate(disk.size_bytes, read_speed),
+                _format_write_speed(progress)
+                if active_write
+                else ("Testing…" if benchmark_pending else _format_read_speed(read_speed)),
+                _format_live_eta(progress)
+                if active_write
+                else (
+                    "Testing…"
+                    if benchmark_pending
+                    else _format_wipe_estimate(disk.size_bytes, read_speed)
+                ),
                 _format_progress(progress),
                 _format_elapsed(progress.elapsed_seconds) if progress else "—",
             )
@@ -508,6 +515,29 @@ def _format_read_speed(bytes_per_second: float | None) -> str:
     if bytes_per_second is None:
         return "Unavailable"
     return f"{bytes_per_second / 1_000_000:.1f} MB/s"
+
+
+def _format_write_speed(progress: JobProgress | None) -> str:
+    if (
+        progress is None
+        or not progress.bytes_processed
+        or progress.elapsed_seconds <= 0
+    ):
+        return "Starting…"
+    return _format_read_speed(progress.bytes_processed / progress.elapsed_seconds)
+
+
+def _format_live_eta(progress: JobProgress | None) -> str:
+    if (
+        progress is None
+        or not progress.bytes_processed
+        or not progress.total_bytes
+        or progress.elapsed_seconds <= 0
+    ):
+        return "Calculating…"
+    rate = progress.bytes_processed / progress.elapsed_seconds
+    remaining = max(0, progress.total_bytes - progress.bytes_processed)
+    return _format_approx_duration(remaining / rate) if remaining else "Done"
 
 
 def _format_wipe_estimate(
