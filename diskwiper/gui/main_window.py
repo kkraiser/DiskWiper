@@ -52,10 +52,9 @@ class MainWindow(QMainWindow):
         "Interface",
         "Position",
         "Volumes",
-        "Speed",
-        "Est.",
+        "Speed: Current (Avg.)",
+        "Time: Total (Remaining)",
         "Progress",
-        "Elapsed",
         "Action",
     )
     COLUMN_WIDTHS = (
@@ -68,9 +67,8 @@ class MainWindow(QMainWindow):
         75,
         75,
         90,
-        105,
-        120,
-        85,
+        175,
+        175,
         85,
         95,
     )
@@ -96,6 +94,7 @@ class MainWindow(QMainWindow):
         self._inventory: DiskInventory | None = None
         self._assessments: dict[int, DiskAssessment] = {}
         self._progress: dict[str, JobProgress] = {}
+        self._current_write_speeds: dict[str, float] = {}
         self._discovery_pool = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="diskwiper-discovery",
@@ -215,6 +214,20 @@ class MainWindow(QMainWindow):
 
         events = self._manager.drain_events()
         for progress in events:
+            previous = self._progress.get(progress.stable_key)
+            if (
+                progress.status is JobStatus.WIPING
+                and previous is not None
+                and previous.job_id == progress.job_id
+                and progress.bytes_processed is not None
+                and previous.bytes_processed is not None
+                and progress.bytes_processed > previous.bytes_processed
+                and progress.elapsed_seconds > previous.elapsed_seconds
+            ):
+                self._current_write_speeds[progress.stable_key] = (
+                    (progress.bytes_processed - previous.bytes_processed)
+                    / (progress.elapsed_seconds - previous.elapsed_seconds)
+                )
             self._progress[progress.stable_key] = progress
             self._status_label.setText(
                 f"Disk {progress.disk_number}: {progress.status.value} — {progress.message}"
@@ -275,18 +288,22 @@ class MainWindow(QMainWindow):
                 disk.bus_type or "Unknown",
                 disk.enclosure_position or "—",
                 ", ".join(f"{letter}:" for letter in disk.drive_letters) or "—",
-                _format_write_speed(progress)
-                if active_write
-                else ("Testing…" if benchmark_pending else _format_read_speed(read_speed)),
-                _format_live_eta(progress)
+                _format_write_speed(
+                    progress, self._current_write_speeds.get(benchmark_key)
+                )
                 if active_write
                 else (
-                    "Testing…"
-                    if benchmark_pending
-                    else _format_wipe_estimate(disk.size_bytes, read_speed)
+                    _format_write_speed(progress, None)
+                    if progress is not None
+                    else ("Testing…" if benchmark_pending else _format_read_speed(read_speed))
+                ),
+                _format_job_time(
+                    progress,
+                    None if benchmark_pending else _wipe_estimate_seconds(
+                        disk.size_bytes, read_speed
+                    ),
                 ),
                 _format_progress(progress),
-                _format_elapsed(progress.elapsed_seconds) if progress else "—",
             )
             for column, value in enumerate(values, start=1):
                 item = QTableWidgetItem(value)
@@ -325,7 +342,7 @@ class MainWindow(QMainWindow):
                 action.clicked.connect(
                     lambda _checked=False, number=disk.disk_number: self._wipe_disk(number)
                 )
-            self._table.setCellWidget(row, 13, action)
+            self._table.setCellWidget(row, 12, action)
 
     def _checked_stable_keys(self) -> set[str]:
         checked: set[str] = set()
@@ -441,12 +458,16 @@ class MainWindow(QMainWindow):
         elapsed_by_disk = self._manager.active_elapsed_seconds()
         for row in range(self._table.rowCount()):
             disk_item = self._table.item(row, 1)
-            elapsed_item = self._table.item(row, 12)
-            if disk_item is None or elapsed_item is None:
+            select_item = self._table.item(row, 0)
+            time_item = self._table.item(row, 10)
+            if disk_item is None or select_item is None or time_item is None:
                 continue
             elapsed = elapsed_by_disk.get(int(disk_item.text()))
             if elapsed is not None:
-                elapsed_item.setText(_format_elapsed(elapsed))
+                key = str(select_item.data(Qt.ItemDataRole.UserRole))
+                progress = self._progress.get(key)
+                if progress is not None:
+                    time_item.setText(_format_job_time(replace(progress, elapsed_seconds=elapsed)))
 
     def _schedule_benchmarks(self) -> None:
         active = self._manager.active_disk_numbers()
@@ -517,14 +538,28 @@ def _format_read_speed(bytes_per_second: float | None) -> str:
     return f"{bytes_per_second / 1_000_000:.1f} MB/s"
 
 
-def _format_write_speed(progress: JobProgress | None) -> str:
+def _average_write_speed(progress: JobProgress | None) -> float | None:
     if (
         progress is None
         or not progress.bytes_processed
         or progress.elapsed_seconds <= 0
     ):
+        return None
+    return progress.bytes_processed / progress.elapsed_seconds
+
+
+def _format_write_speed(
+    progress: JobProgress | None, current_bytes_per_second: float | None = None
+) -> str:
+    average = _average_write_speed(progress)
+    if average is None:
         return "Starting…"
-    return _format_read_speed(progress.bytes_processed / progress.elapsed_seconds)
+    average_text = f"{average / 1_000_000:.1f} avg."
+    if progress is not None and progress.status is JobStatus.WIPING:
+        if current_bytes_per_second is None:
+            return f"— ({average_text}) MB/s"
+        return f"{current_bytes_per_second / 1_000_000:.1f} ({average_text}) MB/s"
+    return f"{average_text} MB/s"
 
 
 def _format_live_eta(progress: JobProgress | None) -> str:
@@ -540,13 +575,50 @@ def _format_live_eta(progress: JobProgress | None) -> str:
     return _format_approx_duration(remaining / rate) if remaining else "Done"
 
 
+def _format_job_time(
+    progress: JobProgress | None, initial_estimate_seconds: float | None = None
+) -> str:
+    if progress is None:
+        estimate = (
+            _format_approx_duration(initial_estimate_seconds)
+            if initial_estimate_seconds is not None
+            else "Unavailable"
+        )
+        return f"— ({estimate})"
+
+    total = _format_compact_duration(progress.elapsed_seconds)
+    if progress.status is JobStatus.WIPING:
+        remaining = _format_live_eta(progress)
+    elif progress.status is JobStatus.VERIFYING:
+        remaining = "Verifying"
+    elif progress.status is JobStatus.COMPLETE:
+        remaining = "Done"
+    else:
+        remaining = "Stopped"
+    return f"{total} ({remaining})"
+
+
 def _format_wipe_estimate(
     size_bytes: int, read_bytes_per_second: float | None
 ) -> str:
-    if read_bytes_per_second is None:
+    estimate = _wipe_estimate_seconds(size_bytes, read_bytes_per_second)
+    if estimate is None:
         return "Unavailable"
-    estimate = estimated_wipe_duration(size_bytes, read_bytes_per_second)
     return _format_approx_duration(estimate)
+
+
+def _wipe_estimate_seconds(
+    size_bytes: int, read_bytes_per_second: float | None
+) -> float | None:
+    if read_bytes_per_second is None:
+        return None
+    return estimated_wipe_duration(size_bytes, read_bytes_per_second)
+
+
+def _format_compact_duration(seconds: float) -> str:
+    total_minutes = max(0, round(seconds / 60))
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
 def _format_approx_duration(seconds: float) -> str:
