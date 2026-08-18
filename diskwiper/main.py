@@ -90,6 +90,7 @@ def main(argv: list[str] | None = None) -> int:
         protected_stable_keys=protected.stable_keys,
         protected_serial_numbers=protected.serial_numbers,
         protected_unique_ids=protected.unique_ids,
+        allowed_bus_types=config.allowed_bus_types,
     )
 
     if args.inventory_only:
@@ -140,7 +141,6 @@ def main(argv: list[str] | None = None) -> int:
         config=config,
         discovery=discovery,
         policy=policy,
-        history=history,
         manager=manager,
         simulation_backend=simulation,
         real_backend=real_backend,

@@ -13,6 +13,11 @@ The current MVP includes:
 - a guarded, single-job DiskPart `clean all` backend;
 - post-operation identity and partition checks.
 
+Empty enclosure slots that Windows reports as zero-byte disk placeholders are
+omitted from inventory. Discovery does not assume a fixed enclosure or bay count;
+any positive-capacity disk remains visible and is evaluated by the normal safety
+policy.
+
 DiskWiper starts in **simulation mode**. Installing or launching it normally cannot
 execute DiskPart.
 
@@ -73,8 +78,11 @@ sector sizes.
 The DiskPart worker rediscovers the disk and repeats protection checks immediately
 before generating its script. Any missing identity or mismatch aborts the job.
 
-Only disks reported with a `USB` bus type are eligible in this MVP. All other bus
-types fail closed. Simulated history never marks a disk as physically wiped.
+Only disks reported with a `USB` bus type are eligible by default. A temporary,
+exact-value environment gate can additionally allow disks reported as `SATA` for
+a controlled test; all boot, system, firmware-boot, protected-path, persistent
+protection, identity, and geometry checks remain active. All other bus types fail
+closed. Simulated history never marks a disk as physically wiped.
 
 ## Controlled destructive mode
 
@@ -125,6 +133,24 @@ Omitting either environment gate, the command-line flag, or the native backend
 selection starts the application without an enabled native destructive path.
 Do not use this mode on a disk containing valuable data. Its first physical test
 must use an expendable disk with unrelated storage disconnected.
+
+## Controlled internal SATA test
+
+Internal SATA disks remain protected by default. For a controlled session, set
+the additional bus gate before inventory, preflight, and launch:
+
+```powershell
+$env:DISKWIPER_ENABLE_INTERNAL_SATA_WIPES = "I_UNDERSTAND_INTERNAL_SATA_WIPES_DESTROY_DATA"
+```
+
+This gate only permits the `SATA` bus type to proceed to the normal protection
+checks; it does not enable real wipes. Native destructive mode still requires its
+two existing gates, `--enable-real-wipes`, Administrator privileges, exact
+`SERIAL:SIZE_BYTES` targets, per-disk serial confirmation, and last-second
+identity revalidation. See `SATA_TEST.md` for the two-disk procedure.
+
+See `MIXED_TEST.md` for the controlled parallel test covering both internal SATA
+and USB-enclosure disks in one native session.
 
 ## Important limitation
 

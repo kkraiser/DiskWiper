@@ -25,6 +25,13 @@ def test_external_disk_with_complete_identity_is_ready() -> None:
     assert assessment.can_wipe
 
 
+def test_eligible_disk_status_does_not_claim_historical_media_identity() -> None:
+    """History cannot identify replacement media behind a bay-identity bridge."""
+    assessment = policy().assess(make_disk())
+
+    assert assessment.status is DiskStatus.READY
+
+
 def test_boot_and_system_flags_are_independent_blocks() -> None:
     for changes in (
         {"is_boot": True},
@@ -59,6 +66,21 @@ def test_non_usb_disk_is_blocked_by_default() -> None:
 
     assert assessment.status is DiskStatus.PROTECTED
     assert "Bus type SATA is not allowed" in assessment.protection_reasons
+
+
+def test_sata_disk_can_be_allowed_without_bypassing_other_protections() -> None:
+    sata_policy = ProtectionPolicy(
+        critical_drive_letters=frozenset({"C"}),
+        allowed_bus_types=frozenset({"USB", "SATA"}),
+    )
+
+    assert sata_policy.assess(make_disk(bus_type="SATA")).can_wipe
+    protected = sata_policy.assess(
+        make_disk(bus_type="SATA", is_system=True, volumes=(VolumeInfo("C"),))
+    )
+    assert not protected.can_wipe
+    assert "Contains the Windows system partition" in protected.protection_reasons
+    assert any("protected path" in reason for reason in protected.protection_reasons)
 
 
 def test_persistent_protected_identity_is_blocked() -> None:

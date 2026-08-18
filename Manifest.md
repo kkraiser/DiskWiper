@@ -520,19 +520,22 @@ This lets the user later answer:
 
 ---
 
-# 16. Already-Wiped Detection
+# 16. Wipe History Is Not Media Identity
 
-When a disk is inserted, compare its serial number with wipe history.
+Keep completed wipe records as an audit trail, but do not classify newly
+discovered media as `PREVIOUSLY WIPED`. Some USB enclosures expose a bay or bridge
+serial instead of the installed drive's true serial. A replacement drive of the
+same capacity can therefore reproduce the same observable fingerprint.
 
-If previously completed:
+An eligible idle disk is shown as `READY`, regardless of similar historical
+records. Current-session job states such as `WIPING`, `CANCELLED / INCOMPLETE`,
+and `COMPLETE` remain visible. History may be searched or reported separately,
+with a warning whenever the stored identity may belong to an enclosure bay.
 
-```text
-PREVIOUSLY WIPED
-Last wipe: 2026-08-16
-Method: Full zero overwrite
-```
-
-Do not prevent another wipe, but warn that one has already been recorded.
+Do not restore automatic already-wiped classification unless DiskWiper can prove
+media identity using a true device identifier or an intentionally written marker.
+Any marker design must disclose that it modifies the post-wipe disk and must not
+weaken or misrepresent zero-overwrite verification.
 
 ---
 
@@ -852,7 +855,9 @@ Potential additions:
 - Drive temperature.
 - Automatically identify HDD versus SSD.
 - Optional disk labels such as Bay 1–4.
-- User-configurable table column visibility and ordering.
+- User-configurable table column visibility and ordering, including an optional
+  raw `Processed Bytes` column for diagnostics while keeping elapsed/remaining
+  time and percentage as the default user-facing progress indicators.
 - Windows notifications when a disk finishes.
 
 Example notification:
@@ -1077,9 +1082,11 @@ revalidation, unbuffered aligned raw writes, live byte progress, throughput and
 ETA, explicit flush, Windows disk-property refresh, and final identity and
 partition verification. Read-only inventory captures before and after showed the
 same disk number, enclosure serial, and capacity. After an enclosure power-cycle,
-the target was reassigned from disk 4 to disk 3 and was correctly marked
-`PREVIOUSLY WIPED` in simulation mode. This confirms that history recognition
-survives disk-number reassignment and completes the physical test protocol.
+the target was reassigned from disk 4 to disk 3 and matched the earlier history
+fingerprint. Later replacement-disk testing showed that this fingerprint can
+follow the enclosure bay rather than the physical media, so it is retained only
+as audit evidence and is no longer presented as proof that the currently
+installed disk was previously wiped.
 
 ## Test enclosure and identity behavior
 
@@ -1147,12 +1154,25 @@ The earlier `PID_2822` / `USB2.0 Hub` path and approximately 39.5 MB/s ceiling
 were therefore caused by the USB connection falling back to USB 2.0. Testing
 on the Intel PC is no longer required to isolate this issue.
 
-## Backlog: drive temperature and SMART diagnostics
+## Backlog: physical-drive identity, temperature, and SMART through USB
 
-Explore an optional per-disk `Temperature` column without making SMART support
-a requirement for inventory or wiping. The feature must run asynchronously,
-display an unavailable value when a bridge does not expose telemetry, and avoid
-diagnostic polling while a disk has an active wipe job.
+Investigate read-only pass-through methods that can reach the physical drive
+behind a USB bridge. Obtaining the drive's own model, serial number, firmware
+revision, WWN, and SMART data would improve replacement detection, protection,
+history correlation, reports, and diagnostics. Temperature remains an optional
+column; identity is the higher-value goal.
+
+Every identifier must carry provenance and confidence, for example `Windows disk
+identity`, `USB bridge/bay identity`, `ATA IDENTIFY`, or `SCSI VPD`. Never silently
+substitute a bridge serial for a physical-media serial. If pass-through is not
+supported, continue showing the current bridge identity and treat history as audit
+evidence rather than proof of media identity.
+
+The feature must run asynchronously, display unavailable values when a bridge
+does not expose them, invalidate cached physical identity after removal or
+reconnection, and avoid all diagnostic polling while a disk has an active wipe
+job. Pass-through responses must be bound back to the same Windows disk using the
+full current fingerprint before being displayed or persisted.
 
 Evidence from the current Sabrent DS-SC4B / ASM235CM enclosure:
 
@@ -1165,15 +1185,69 @@ Evidence from the current Sabrent DS-SC4B / ASM235CM enclosure:
 
 Future options to investigate:
 
-1. Test other documented smartctl device types or permissions only when doing
-   so is read-only and the disk identity can be revalidated.
-2. Determine whether HWiNFO can read temperatures through this bridge and, if
-   so, whether its shared-memory sensor interface can be consumed safely as an
-   optional integration while HWiNFO is running.
-3. Keep the UI provider-neutral: Windows reliability counters, smartctl, or an
+1. Query standard Windows storage descriptors and explicitly record whether each
+   returned serial belongs to the bridge or underlying media.
+2. Probe read-only SCSI vital-product-data pages for unit serial and device
+   identifiers where the bridge supports them.
+3. Probe ATA `IDENTIFY DEVICE` and SMART data through standards-based SAT/SCSI or
+   Windows ATA pass-through, starting with one known expendable disk and comparing
+   the returned serial against its physical label.
+4. Test other documented smartctl device types or permissions only when doing so
+   is read-only and the target identity can be revalidated before and after the
+   request. Never auto-cycle through vendor-specific commands on unknown bridges.
+5. Determine whether HWiNFO can expose physical serials or temperatures through
+   this bridge and, if so, whether its shared-memory sensor interface can be
+   consumed safely as an optional integration while HWiNFO is running.
+6. Keep the UI provider-neutral: native Windows queries, pass-through, smartctl,
+   or an external sensor provider may supply identity and telemetry. Show the
+   source and fall back to unavailable rather than guessing. An
    external sensor provider may supply a temperature, otherwise show `—`.
 
 Do not add HWiNFO or smartmontools as a mandatory runtime dependency.
+
+## Backlog: safety acknowledgements in Settings
+
+Replace command-line and environment-variable test gates with a dedicated UI
+Settings workflow once the controlled destructive tests are complete. The UI
+must present every applicable disclaimer, require an explicit acknowledgement
+for each capability (real wipes, experimental native writes, and internal-bus
+access), clearly show which protections are relaxed, and allow the user to revoke
+an acknowledgement without using a terminal. Persisted settings must fail closed
+when missing, malformed, or created by an incompatible application version.
+
+Internal-bus access must remain separate from destructive-mode authorization and
+must never disable boot, system, firmware-boot, protected-path, persistent-device,
+identity, geometry, exact-target, confirmation, or last-second revalidation checks.
+
+## Backlog: rapid cryptographic invalidation
+
+Research an optional fast sanitization path for disks whose data was encrypted
+before use. Prefer standards-aligned cryptographic erase or a device-native
+sanitize/crypto-scramble command that destroys the applicable media-encryption
+key. Do not implement this as arbitrary random writes to a few sectors: making a
+partition table or filesystem unreadable does not prove that encryption metadata,
+backup headers, recovery material, or user data cannot be recovered.
+
+The feature must remain separate from the full zero-overwrite method and must:
+
+1. positively identify the encryption technology and its key scope;
+2. prove that the entire target media was encrypted before accepting a
+   cryptographic-erase claim;
+3. account for external recovery keys, escrowed keys, header backups, and drive
+   firmware behavior;
+4. use an explicit per-device command allowlist with capability discovery and
+   post-command verification;
+5. preserve the existing identity, protection, authorization, confirmation, and
+   last-second revalidation checks;
+6. record the exact method, command result, evidence, assurance category, and any
+   limitations in history and reports;
+7. fail closed or fall back to a complete overwrite when prerequisites cannot be
+   proven.
+
+If a separate quick `metadata destruction` tool is ever offered, label it as
+making ordinary access difficult rather than as sanitization or cryptographic
+erase. It must not create a successful wipe-history record or claim that data is
+unrecoverable.
 
 ---
 

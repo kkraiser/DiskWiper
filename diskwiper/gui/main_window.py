@@ -31,7 +31,6 @@ from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.disks.protection import add_protected_stable_keys
 from diskwiper.domain.models import DiskAssessment, DiskStatus, JobProgress, JobStatus
 from diskwiper.gui.confirm_dialog import ConfirmWipeDialog
-from diskwiper.history.database import HistoryStore
 from diskwiper.wipe.backends import RealWipeBackend, SimulationBackend
 from diskwiper.wipe.manager import JobManager
 
@@ -78,7 +77,6 @@ class MainWindow(QMainWindow):
         config: AppConfig,
         discovery: DiskDiscovery,
         policy: ProtectionPolicy,
-        history: HistoryStore,
         manager: JobManager,
         simulation_backend: SimulationBackend,
         real_backend: RealWipeBackend,
@@ -87,7 +85,6 @@ class MainWindow(QMainWindow):
         self._config = config
         self._discovery = discovery
         self._policy = policy
-        self._history = history
         self._manager = manager
         self._simulation_backend = simulation_backend
         self._real_backend = real_backend
@@ -240,11 +237,7 @@ class MainWindow(QMainWindow):
         self._inventory = inventory
         self._assessments = {}
         for disk in inventory.disks:
-            completed_at = self._history.last_completed_at(disk.fingerprint.stable_key)
-            self._assessments[disk.disk_number] = self._policy.assess(
-                disk,
-                previously_wiped_at=completed_at,
-            )
+            self._assessments[disk.disk_number] = self._policy.assess(disk)
         self._schedule_benchmarks()
         self._status_label.setText(f"Detected {len(inventory.disks)} physical disk(s)")
         self._render_table()

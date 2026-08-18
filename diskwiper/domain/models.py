@@ -18,7 +18,6 @@ def normalize_identifier(value: str | None) -> str:
 class DiskStatus(StrEnum):
     PROTECTED = "PROTECTED"
     READY = "READY"
-    PREVIOUSLY_WIPED = "PREVIOUSLY WIPED"
 
 
 class JobStatus(StrEnum):
@@ -136,7 +135,6 @@ class DiskAssessment:
     disk: PhysicalDisk
     status: DiskStatus
     protection_reasons: tuple[str, ...] = ()
-    previously_wiped_at: datetime | None = None
 
     @property
     def can_wipe(self) -> bool:

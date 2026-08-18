@@ -7,6 +7,7 @@ from pathlib import Path
 
 REAL_WIPE_ENV_VALUE = "I_UNDERSTAND_THIS_DESTROYS_DATA"
 NATIVE_WIPE_ENV_VALUE = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL"
+INTERNAL_SATA_ENV_VALUE = "I_UNDERSTAND_INTERNAL_SATA_WIPES_DESTROY_DATA"
 
 
 def default_data_dir() -> Path:
@@ -40,6 +41,21 @@ class AppConfig:
                 == NATIVE_WIPE_ENV_VALUE
             )
         return general_gate
+
+    @property
+    def internal_sata_wipes_enabled(self) -> bool:
+        """Allow SATA disks past the bus check only for this process session."""
+        return (
+            os.environ.get("DISKWIPER_ENABLE_INTERNAL_SATA_WIPES")
+            == INTERNAL_SATA_ENV_VALUE
+        )
+
+    @property
+    def allowed_bus_types(self) -> frozenset[str]:
+        allowed = {"USB"}
+        if self.internal_sata_wipes_enabled:
+            allowed.add("SATA")
+        return frozenset(allowed)
 
     @property
     def destructive_mode_description(self) -> str:

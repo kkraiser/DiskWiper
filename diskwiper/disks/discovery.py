@@ -131,7 +131,8 @@ class PowerShellDiskDiscovery:
             raw_disks = payload.get("Disks", [])
             if isinstance(raw_disks, dict):
                 raw_disks = [raw_disks]
-            disks = tuple(self._parse_disk(item) for item in raw_disks)
+            parsed_disks = (self._parse_disk(item) for item in raw_disks)
+            disks = tuple(disk for disk in parsed_disks if _is_present_disk(disk))
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise DiscoveryError(f"Invalid disk inventory: {exc}") from exc
 
@@ -205,3 +206,8 @@ def _as_list(value: object) -> list[object]:
     if value is None:
         return []
     return value if isinstance(value, list) else [value]
+
+
+def _is_present_disk(disk: PhysicalDisk) -> bool:
+    """Exclude empty enclosure slots that Windows exposes as zero-byte disks."""
+    return disk.size_bytes > 0

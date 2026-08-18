@@ -115,7 +115,6 @@ class ProtectionPolicy:
     def assess(
         self,
         disk: PhysicalDisk,
-        previously_wiped_at=None,
     ) -> DiskAssessment:
         reasons: list[str] = []
         if disk.is_boot:
@@ -158,13 +157,10 @@ class ProtectionPolicy:
 
         if reasons:
             status = DiskStatus.PROTECTED
-        elif previously_wiped_at is not None:
-            status = DiskStatus.PREVIOUSLY_WIPED
         else:
             status = DiskStatus.READY
         return DiskAssessment(
             disk=disk,
             status=status,
             protection_reasons=tuple(reasons),
-            previously_wiped_at=previously_wiped_at,
         )

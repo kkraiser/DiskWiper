@@ -61,3 +61,64 @@ def test_discovery_preserves_every_partition_access_path(monkeypatch) -> None:
     assert volume.access_paths == ("T:\\", "\\\\?\\Volume{guid}\\")
     assert volume.partition_type == "Basic"
     assert volume.file_system == "NTFS"
+
+
+def test_discovery_omits_zero_byte_empty_enclosure_slots(monkeypatch) -> None:
+    payload = {
+        "Disks": [
+            {
+                "Number": 3,
+                "Model": "ASM235CM",
+                "SerialNumber": "41A000000419",
+                "Size": 0,
+                "BusType": "USB",
+                "LogicalSectorSize": 0,
+                "PhysicalSectorSize": 0,
+            },
+            {
+                "Number": 4,
+                "Model": "Installed HDD",
+                "SerialNumber": "PRESENT",
+                "Size": 4096,
+                "BusType": "USB",
+                "LogicalSectorSize": 512,
+                "PhysicalSectorSize": 4096,
+            },
+        ]
+    }
+    monkeypatch.setattr(
+        "diskwiper.disks.discovery.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, json.dumps(payload).encode(), b""
+        ),
+    )
+
+    inventory = PowerShellDiskDiscovery().discover()
+
+    assert tuple(disk.disk_number for disk in inventory.disks) == (4,)
+
+
+def test_discovery_keeps_nonempty_disk_with_invalid_geometry_visible(monkeypatch) -> None:
+    payload = {
+        "Disks": [
+            {
+                "Number": 7,
+                "Model": "Malformed but present",
+                "SerialNumber": "PRESENT",
+                "Size": 4096,
+                "BusType": "USB",
+                "LogicalSectorSize": 0,
+                "PhysicalSectorSize": 0,
+            }
+        ]
+    }
+    monkeypatch.setattr(
+        "diskwiper.disks.discovery.subprocess.run",
+        lambda *args, **kwargs: subprocess.CompletedProcess(
+            args[0], 0, json.dumps(payload).encode(), b""
+        ),
+    )
+
+    inventory = PowerShellDiskDiscovery().discover()
+
+    assert tuple(disk.disk_number for disk in inventory.disks) == (7,)
