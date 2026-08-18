@@ -68,3 +68,8 @@ def test_compact_table_headers_and_serial_width() -> None:
 
 def test_default_window_is_wide_enough_for_configured_columns() -> None:
     assert MainWindow.DEFAULT_WIDTH >= sum(MainWindow.COLUMN_WIDTHS) + 40
+
+
+def test_default_window_reserves_vertical_space_for_bounded_activity_log() -> None:
+    assert MainWindow.DEFAULT_HEIGHT >= 720
+    assert 100 <= MainWindow.ACTIVITY_MAX_BLOCKS <= 1_000

@@ -27,6 +27,7 @@ class NativeRawWriteBackend:
     simulated = False
     supports_cancel = True
     supports_parallel_real = True
+    discovery_attempts = 2
 
     def __init__(
         self,
@@ -157,10 +158,7 @@ class NativeRawWriteBackend:
             )
 
     def _revalidate(self, authorization: WipeAuthorization) -> PhysicalDisk:
-        try:
-            inventory = self._discovery.discover()
-        except DiscoveryError as exc:
-            raise BackendError(f"Revalidation failed: {exc}") from exc
+        inventory = self._discover_with_retry("Revalidation")
         current = inventory.disk_by_number(authorization.disk_number)
         if current is None:
             raise BackendError("Authorized disk number is no longer present")
@@ -173,6 +171,16 @@ class NativeRawWriteBackend:
             )
         return current
 
+    def _discover_with_retry(self, context: str):
+        last_error: DiscoveryError | None = None
+        for _attempt in range(self.discovery_attempts):
+            try:
+                return self._discovery.discover()
+            except DiscoveryError as exc:
+                last_error = exc
+        assert last_error is not None
+        raise BackendError(f"{context} failed after retry: {last_error}") from last_error
+
     @staticmethod
     def _validate_raw_geometry(
         authorization: WipeAuthorization, raw_disk: RawWriteDevice
@@ -184,11 +192,7 @@ class NativeRawWriteBackend:
             raise BackendError("Raw device physical sector size changed")
 
     def _verify_completion(self, authorization: WipeAuthorization) -> None:
-        report_error = "Post-wipe discovery failed"
-        try:
-            inventory = self._discovery.discover()
-        except DiscoveryError as exc:
-            raise BackendError(f"{report_error}: {exc}") from exc
+        inventory = self._discover_with_retry("Post-wipe discovery")
         current = inventory.disk_by_number(authorization.disk_number)
         if current is None:
             raise BackendError("Disk disappeared before completion could be verified")

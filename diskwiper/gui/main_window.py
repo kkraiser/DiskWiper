@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QCloseEvent
@@ -13,6 +14,7 @@ from PySide6.QtWidgets import (
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -40,7 +42,8 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     DEFAULT_WIDTH = 1480
-    DEFAULT_HEIGHT = 620
+    DEFAULT_HEIGHT = 760
+    ACTIVITY_MAX_BLOCKS = 500
     COLUMNS = (
         "Select",
         "Disk",
@@ -91,6 +94,7 @@ class MainWindow(QMainWindow):
         self._inventory: DiskInventory | None = None
         self._assessments: dict[int, DiskAssessment] = {}
         self._progress: dict[str, JobProgress] = {}
+        self._last_activity_by_disk: dict[int, tuple[str, JobStatus, str]] = {}
         self._current_write_speeds: dict[str, float] = {}
         self._discovery_pool = ThreadPoolExecutor(
             max_workers=1,
@@ -145,7 +149,13 @@ class MainWindow(QMainWindow):
         self._cancel_button.clicked.connect(self._cancel_selected)
         self._protect_button = QPushButton("Protect Selected Permanently")
         self._protect_button.clicked.connect(self._protect_selected)
-        self._status_label = QLabel("Waiting for disk inventory")
+        self._activity_panel = QPlainTextEdit()
+        self._activity_panel.setReadOnly(True)
+        self._activity_panel.setMaximumBlockCount(self.ACTIVITY_MAX_BLOCKS)
+        self._activity_panel.setMinimumHeight(120)
+        self._activity_panel.setMaximumHeight(200)
+        self._activity_panel.setPlaceholderText("Status and error messages appear here")
+        self._append_activity("Waiting for disk inventory")
 
         controls = QHBoxLayout()
         controls.addWidget(self._refresh_button)
@@ -153,12 +163,13 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._cancel_button)
         controls.addWidget(self._protect_button)
         controls.addStretch()
-        controls.addWidget(self._status_label)
 
         layout = QVBoxLayout()
         layout.addWidget(self._mode_banner)
         layout.addLayout(controls)
-        layout.addWidget(self._table)
+        layout.addWidget(self._table, 1)
+        layout.addWidget(QLabel("Activity"))
+        layout.addWidget(self._activity_panel)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -178,7 +189,7 @@ class MainWindow(QMainWindow):
         if self._refresh_future is not None:
             return
         self._refresh_button.setEnabled(False)
-        self._status_label.setText("Refreshing disk inventory…")
+        self._append_activity("Refreshing disk inventory…")
         self._refresh_future = self._discovery_pool.submit(self._discovery.discover)
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -204,10 +215,10 @@ class MainWindow(QMainWindow):
                 self._apply_inventory(future.result())
             except DiscoveryError as exc:
                 logger.error("Disk discovery failed: %s", exc)
-                self._status_label.setText(f"Discovery error: {exc}")
+                self._append_activity(f"Discovery error: {exc}")
             except Exception as exc:
                 logger.exception("Unexpected disk discovery failure")
-                self._status_label.setText(f"Discovery error: {exc}")
+                self._append_activity(f"Discovery error: {exc}")
 
         events = self._manager.drain_events()
         for progress in events:
@@ -226,9 +237,13 @@ class MainWindow(QMainWindow):
                     / (progress.elapsed_seconds - previous.elapsed_seconds)
                 )
             self._progress[progress.stable_key] = progress
-            self._status_label.setText(
-                f"Disk {progress.disk_number}: {progress.status.value} — {progress.message}"
-            )
+            activity = (progress.job_id, progress.status, progress.message)
+            if self._last_activity_by_disk.get(progress.disk_number) != activity:
+                self._last_activity_by_disk[progress.disk_number] = activity
+                self._append_activity(
+                    f"Disk {progress.disk_number}: {progress.status.value} — "
+                    f"{progress.message}"
+                )
         if events and self._inventory is not None:
             self._render_table()
         self._poll_benchmarks()
@@ -239,8 +254,12 @@ class MainWindow(QMainWindow):
         for disk in inventory.disks:
             self._assessments[disk.disk_number] = self._policy.assess(disk)
         self._schedule_benchmarks()
-        self._status_label.setText(f"Detected {len(inventory.disks)} physical disk(s)")
+        self._append_activity(f"Detected {len(inventory.disks)} physical disk(s)")
         self._render_table()
+
+    def _append_activity(self, message: str) -> None:
+        timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
+        self._activity_panel.appendPlainText(f"[{timestamp}] {message}")
 
     def _render_table(self) -> None:
         checked_keys = self._checked_stable_keys()
@@ -437,7 +456,7 @@ class MainWindow(QMainWindow):
             self._progress.pop(key, None)
         if self._inventory is not None:
             self._apply_inventory(self._inventory)
-        self._status_label.setText(f"Permanently protected {len(keys)} disk(s)")
+        self._append_activity(f"Permanently protected {len(keys)} disk(s)")
 
     def _cancel_disk(self, disk_number: int) -> None:
         if not self._manager.cancel_disk(disk_number):

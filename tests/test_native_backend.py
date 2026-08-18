@@ -6,7 +6,7 @@ from dataclasses import replace
 
 import pytest
 
-from diskwiper.disks.discovery import DiskInventory
+from diskwiper.disks.discovery import DiskInventory, DiscoveryError
 from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.domain.models import JobStatus, VolumeInfo, WipeAuthorization
 from diskwiper.wipe.backends import BackendError
@@ -20,7 +20,10 @@ class SequenceDiscovery:
         self.disks = list(disks)
 
     def discover(self) -> DiskInventory:
-        return DiskInventory("generation", (self.disks.pop(0),))
+        result = self.disks.pop(0)
+        if isinstance(result, Exception):
+            raise result
+        return DiskInventory("generation", (result,))
 
 
 class FakeRawDisk(AbstractContextManager):
@@ -114,6 +117,22 @@ def test_native_backend_locks_revalidates_writes_and_verifies() -> None:
     assert raw.flushed and raw.properties_updated
     assert result.status is JobStatus.COMPLETE
     assert any(event[0] is JobStatus.WIPING for event in events)
+
+
+def test_native_backend_retries_one_transient_discovery_failure() -> None:
+    before = make_disk(size_bytes=4096)
+    after = replace(before, partition_count=0, volumes=())
+    raw = FakeRawDisk(before)
+    discovery = SequenceDiscovery(
+        DiscoveryError("PowerShell timed out"), before, before, after
+    )
+    backend = make_backend(discovery, raw, [])
+
+    result = backend.run(
+        authorization_for(before), threading.Event(), lambda *_: None
+    )
+
+    assert result.status is JobStatus.COMPLETE
 
 
 def test_native_backend_cancellation_is_incomplete() -> None:

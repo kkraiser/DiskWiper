@@ -92,3 +92,12 @@ after all evidence is captured, then confirm every intended disk is rediscovered
 Because the USB bridge exposes bay identities rather than true media serials,
 history is audit evidence for this run and must not be treated as proof about a
 later replacement disk installed in the same bay.
+
+## Observed startup issue — 2026-08-18
+
+During the first five-disk launch, disk 5 (`21A000000419`) reached `ERROR` before
+writing because its serialized last-second PowerShell discovery timed out after
+30 seconds while the other four jobs were starting. The other four jobs continued
+normally. This was a transient inventory failure, not an identity mismatch or raw
+write error. The native backend now retries one failed discovery before rejecting
+a job.
