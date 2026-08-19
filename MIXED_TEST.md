@@ -101,3 +101,29 @@ writing because its serialized last-second PowerShell discovery timed out after
 normally. This was a transient inventory failure, not an identity mismatch or raw
 write error. The native backend now retries one failed discovery before rejecting
 a job.
+
+## Completed mixed test — 2026-08-19
+
+The relaunched five-disk run completed successfully. Every target reached
+`COMPLETE`, displayed `100.0%`, and passed the native backend's final
+zero-partition verification.
+
+```text
+Disk  Interface  Serial          Capacity          Elapsed  Average
+0     SATA       ZX20HKS9       22000969973760    27h 57m  218.6 MB/s
+1     SATA       ZX215K1P       22000969973760    27h 08m  225.3 MB/s
+4     USB P1     11A000000419   20000588955648    26h 20m  211.0 MB/s
+5     USB P2     21A000000419   22000969973760    27h 32m  221.9 MB/s
+6     USB P3     31A000000419   18000207937536    23h 15m  215.1 MB/s
+```
+
+The attached activity capture explicitly recorded the `VERIFYING` to `COMPLETE`
+transition and `no partitions remain` result for disks 0, 1, and 5. Earlier
+completion events for disks 4 and 6 had scrolled out of the bounded activity
+buffer, while the final screenshot independently showed all five terminal rows,
+their durations, average speeds, 100% progress, and empty volume columns.
+
+This validates concurrent native wiping across internal SATA and a three-disk USB
+enclosure, independent progress and completion, sustained shared USB throughput,
+the transient-discovery retry used by disk 5 on relaunch, and final verification
+for all five targets.

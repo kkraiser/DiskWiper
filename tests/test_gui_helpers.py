@@ -1,6 +1,8 @@
+import pytest
+
 from diskwiper.domain.models import DiskStatus, JobProgress, JobStatus
 from diskwiper.gui.confirm_dialog import _serial_challenge
-from diskwiper.gui.main_window import MainWindow, _status_color
+from diskwiper.gui.main_window import MainWindow, _copy_log_snapshot, _status_color
 from diskwiper.gui.main_window import _format_read_speed, _format_wipe_estimate
 from diskwiper.gui.main_window import _format_job_time, _format_live_eta, _format_write_speed
 
@@ -73,3 +75,22 @@ def test_default_window_is_wide_enough_for_configured_columns() -> None:
 def test_default_window_reserves_vertical_space_for_bounded_activity_log() -> None:
     assert MainWindow.DEFAULT_HEIGHT >= 720
     assert 100 <= MainWindow.ACTIVITY_MAX_BLOCKS <= 1_000
+
+
+def test_log_snapshot_copies_the_entire_current_file(tmp_path) -> None:
+    source = tmp_path / "diskwiper.log"
+    destination = tmp_path / "saved" / "test-run.log"
+    source.write_text("first line\nlast line\n", encoding="utf-8")
+
+    result = _copy_log_snapshot(source, destination)
+
+    assert result == destination
+    assert destination.read_text(encoding="utf-8") == "first line\nlast line\n"
+
+
+def test_log_snapshot_rejects_overwriting_the_active_log(tmp_path) -> None:
+    source = tmp_path / "diskwiper.log"
+    source.write_text("keep me", encoding="utf-8")
+
+    with pytest.raises(ValueError, match="active log"):
+        _copy_log_snapshot(source, source)

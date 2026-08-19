@@ -1032,15 +1032,34 @@ Never attempt to guess what the user intended.
 ## Application status
 
 - DiskPart-based MVP is feature-complete for the current test phase.
-- Automated suite: **36 tests passing** on Python 3.12.
+- Automated suite: **102 tests passing** on Python 3.12.
 - Simulation, parallel simulated jobs, cancellation, persistent history,
   permanent protection, enclosure-position display, read-only speed sampling,
   estimated duration, and 60-second/manual inventory refresh are implemented.
 - Per-disk eject was removed. Hot-swap is controlled by the enclosure; use
   Windows safe removal only when disconnecting the entire enclosure.
-- A future native Python raw-write backend is planned to provide actual byte
-  progress, throughput, ETA, cooperative cancellation, and controlled parallel
-  physical wipes while preserving all current safety gates.
+- The native Python raw-write backend provides actual byte progress, throughput,
+  ETA, cooperative cancellation, and controlled parallel physical wipes while
+  preserving the current safety gates.
+
+## Completed mixed SATA and USB destructive test
+
+On 2026-08-19, two internal SATA disks and three USB-enclosure disks completed
+parallel native zero overwrites in one session. All five targets reached
+`COMPLETE`, 100%, and zero partitions after final metadata refresh and identity
+verification.
+
+```text
+ZX20HKS9       SATA    22.00 TB   27h 57m   218.6 MB/s
+ZX215K1P       SATA    22.00 TB   27h 08m   225.3 MB/s
+11A000000419   USB P1  20.00 TB   26h 20m   211.0 MB/s
+21A000000419   USB P2  22.00 TB   27h 32m   221.9 MB/s
+31A000000419   USB P3  18.00 TB   23h 15m   215.1 MB/s
+```
+
+The USB results demonstrate sustained concurrent operation across three populated
+enclosure bays. Bay serials remain bridge identities rather than proof of the
+installed physical media's identity.
 
 ## Completed destructive test
 

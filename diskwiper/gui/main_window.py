@@ -1,15 +1,18 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
 from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractItemView,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
@@ -107,6 +110,11 @@ class MainWindow(QMainWindow):
         )
         self._benchmark_futures: dict[str, Future[float]] = {}
         self._read_speeds: dict[str, float | None] = {}
+        self._log_export_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="diskwiper-log-export",
+        )
+        self._log_export_future: Future[Path] | None = None
 
         self.setWindowTitle("DiskWiper 0.1")
         self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
@@ -149,6 +157,8 @@ class MainWindow(QMainWindow):
         self._cancel_button.clicked.connect(self._cancel_selected)
         self._protect_button = QPushButton("Protect Selected Permanently")
         self._protect_button.clicked.connect(self._protect_selected)
+        self._save_log_button = QPushButton("Save Log File")
+        self._save_log_button.clicked.connect(self._save_log_file)
         self._activity_panel = QPlainTextEdit()
         self._activity_panel.setReadOnly(True)
         self._activity_panel.setMaximumBlockCount(self.ACTIVITY_MAX_BLOCKS)
@@ -162,6 +172,7 @@ class MainWindow(QMainWindow):
         controls.addWidget(self._wipe_button)
         controls.addWidget(self._cancel_button)
         controls.addWidget(self._protect_button)
+        controls.addWidget(self._save_log_button)
         controls.addStretch()
 
         layout = QVBoxLayout()
@@ -189,7 +200,6 @@ class MainWindow(QMainWindow):
         if self._refresh_future is not None:
             return
         self._refresh_button.setEnabled(False)
-        self._append_activity("Refreshing disk inventory…")
         self._refresh_future = self._discovery_pool.submit(self._discovery.discover)
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -203,10 +213,12 @@ class MainWindow(QMainWindow):
             return
         self._discovery_pool.shutdown(wait=False, cancel_futures=True)
         self._benchmark_pool.shutdown(wait=False, cancel_futures=True)
+        self._log_export_pool.shutdown(wait=True, cancel_futures=False)
         self._manager.shutdown()
         event.accept()
 
     def _poll_background_work(self) -> None:
+        self._poll_log_export()
         if self._refresh_future is not None and self._refresh_future.done():
             future = self._refresh_future
             self._refresh_future = None
@@ -248,13 +260,49 @@ class MainWindow(QMainWindow):
             self._render_table()
         self._poll_benchmarks()
 
+    def _save_log_file(self) -> None:
+        if self._log_export_future is not None:
+            return
+        default_name = f"diskwiper-{datetime.now().astimezone():%Y%m%d-%H%M%S}.log"
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save Log File",
+            str(self._config.data_dir / default_name),
+            "Log files (*.log);;All files (*)",
+        )
+        if not destination:
+            return
+        self._save_log_button.setEnabled(False)
+        self._append_activity(f"Saving log snapshot to {destination}")
+        self._log_export_future = self._log_export_pool.submit(
+            _copy_log_snapshot,
+            self._config.log_path,
+            Path(destination),
+        )
+
+    def _poll_log_export(self) -> None:
+        future = self._log_export_future
+        if future is None or not future.done():
+            return
+        self._log_export_future = None
+        self._save_log_button.setEnabled(True)
+        try:
+            destination = future.result()
+        except Exception as exc:
+            logger.error("Log export failed: %s", exc)
+            self._append_activity(f"Log export failed: {exc}")
+            return
+        self._append_activity(f"Saved log snapshot to {destination}")
+
     def _apply_inventory(self, inventory: DiskInventory) -> None:
+        previous_disk_count = len(self._inventory.disks) if self._inventory else None
         self._inventory = inventory
         self._assessments = {}
         for disk in inventory.disks:
             self._assessments[disk.disk_number] = self._policy.assess(disk)
         self._schedule_benchmarks()
-        self._append_activity(f"Detected {len(inventory.disks)} physical disk(s)")
+        if previous_disk_count != len(inventory.disks):
+            self._append_activity(f"Detected {len(inventory.disks)} physical disk(s)")
         self._render_table()
 
     def _append_activity(self, message: str) -> None:
@@ -516,6 +564,16 @@ class MainWindow(QMainWindow):
             changed = True
         if changed and self._inventory is not None:
             self._render_table()
+
+def _copy_log_snapshot(source: Path, destination: Path) -> Path:
+    if source.resolve() == destination.resolve():
+        raise ValueError("Choose a destination other than the active log file")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
+
 
 def _format_bytes(size: int) -> str:
     value = float(size)

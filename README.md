@@ -10,6 +10,7 @@ The current MVP includes:
 - serial-number confirmation;
 - parallel simulated jobs with progress and cancellation;
 - SQLite job history and interrupted-job recovery;
+- background export of the complete current log without stopping active wipes;
 - a guarded, single-job DiskPart `clean all` backend;
 - post-operation identity and partition checks.
 
