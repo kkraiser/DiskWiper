@@ -7,11 +7,14 @@ tracks, USB sharing, or per-drive limits can extend it further.
 
 ## Armed identities
 
+Populate these placeholders from a fresh inventory immediately before the test.
+Do not publish or reuse real serial numbers and capacities.
+
 ```text
-11A000000419:500107862016
-21A000000419:150038863360
-31A000000419:18000207937536
-41A000000419:22000969973760
+SERIAL_1:SIZE_BYTES_1
+SERIAL_2:SIZE_BYTES_2
+SERIAL_3:SIZE_BYTES_3
+SERIAL_4:SIZE_BYTES_4
 ```
 
 These are enclosure bay identities combined with exact current capacities. Stop
@@ -43,10 +46,10 @@ $env:DISKWIPER_ENABLE_NATIVE_WIPES = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL
 
 .\.venv\Scripts\python.exe -m diskwiper.main --enable-real-wipes `
   --real-backend native `
-  --native-test-target "11A000000419:500107862016" `
-  --native-test-target "21A000000419:150038863360" `
-  --native-test-target "31A000000419:18000207937536" `
-  --native-test-target "41A000000419:22000969973760"
+  --native-test-target "SERIAL_1:SIZE_BYTES_1" `
+  --native-test-target "SERIAL_2:SIZE_BYTES_2" `
+  --native-test-target "SERIAL_3:SIZE_BYTES_3" `
+  --native-test-target "SERIAL_4:SIZE_BYTES_4"
 ```
 
 Confirm the experimental native banner. Select exactly the four armed disks and

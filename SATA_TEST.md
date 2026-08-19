@@ -84,12 +84,14 @@ Then select the intended disk or disks for the full completion test.
 
 ### Observed cancellation result — 2026-08-18
 
-The first internal SATA cancellation test passed on disk serial `ZX20HKS9`:
+The first internal SATA cancellation test passed on one expendable test disk.
+Keep real serial numbers and machine-specific measurements in private test
+records, not in this repository:
 
 ```text
-Before cancel: WIPING, 3m elapsed, 0.2%, approximately 270.8 MB/s average
-After cancel:  CANCELLED / INCOMPLETE, 3m elapsed, 0.2%, stopped
-Restart:       Began again from byte zero with behavior similar to the first run
+Before cancel: WIPING, elapsed time and progress recorded privately
+After cancel:  CANCELLED / INCOMPLETE, stopped
+Restart:       Began again from byte zero
 Other disk:    Remained READY and unchanged
 ```
 

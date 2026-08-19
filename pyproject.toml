@@ -7,10 +7,25 @@ name = "diskwiper"
 version = "0.1.0"
 description = "Safety-first Windows HDD overwrite utility"
 readme = "README.md"
+license = {file = "LICENSE"}
+authors = [
+    {name = "DiskWiper contributors"},
+]
 requires-python = ">=3.12"
 dependencies = [
     "PySide6>=6.8,<7",
 ]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Environment :: Win32 (MS Windows)",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: System :: Hardware",
+]
+keywords = ["disk", "erase", "storage", "windows"]
 
 [project.optional-dependencies]
 dev = [
@@ -20,6 +35,10 @@ dev = [
 
 [project.scripts]
 diskwiper = "diskwiper.main:main"
+
+[project.urls]
+Repository = "https://github.com/kkraiser/DiskWiper"
+Issues = "https://github.com/kkraiser/DiskWiper/issues"
 
 [tool.hatch.build.targets.wheel]
 packages = ["diskwiper"]

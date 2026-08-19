@@ -8,7 +8,7 @@ from diskwiper.gui.main_window import _format_job_time, _format_live_eta, _forma
 
 
 def test_serial_challenge_uses_first_four_characters() -> None:
-    assert _serial_challenge(" 21A000000419 ") == "21A0"
+    assert _serial_challenge(" TEST-SERIAL-1 ") == "TEST"
 
 
 def test_ready_and_cancelled_statuses_have_high_contrast_colors() -> None:
