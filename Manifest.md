@@ -1,5 +1,9 @@
 # DiskWiper
 
+> Historical design notes. This document describes the original project plan;
+> the current implementation and supported behavior are documented in
+> [README.md](README.md).
+
 ## Project Purpose
 
 **DiskWiper** is a Windows desktop utility for securely erasing multiple spinning hard drives in removable/external enclosures.
@@ -1050,11 +1054,11 @@ parallel native zero overwrites in one session. All five targets reached
 verification.
 
 ```text
-ZX20HKS9       SATA    22.00 TB   27h 57m   218.6 MB/s
-ZX215K1P       SATA    22.00 TB   27h 08m   225.3 MB/s
-11A000000419   USB P1  20.00 TB   26h 20m   211.0 MB/s
-21A000000419   USB P2  22.00 TB   27h 32m   221.9 MB/s
-31A000000419   USB P3  18.00 TB   23h 15m   215.1 MB/s
+SYNTHETIC_SATA_1  SATA    completed
+SYNTHETIC_SATA_2  SATA    completed
+SYNTHETIC_USB_1   USB P1  completed
+SYNTHETIC_USB_2   USB P2  completed
+SYNTHETIC_USB_3   USB P3  completed
 ```
 
 The USB results demonstrate sustained concurrent operation across three populated
@@ -1066,14 +1070,8 @@ installed physical media's identity.
 One real DiskPart `clean all` test completed successfully on a 150 GB
 WD1500ADFD installed in position P2:
 
-```text
-Enclosure serial: 21A000000419
-Started:          2026-08-16 14:32:27
-DiskPart success: 2026-08-16 15:35:47
-Elapsed:          approximately 1:03:20
-Post-check:       RAW, healthy, zero partitions
-Power-cycle:      disk rediscovered and recognized from wipe history
-```
+Exact hardware identities and timestamps are retained in private test records.
+The test completed with zero partitions and was rediscovered after a power-cycle.
 
 This corresponds to roughly 39.5 MB/s and led to investigation of the USB link.
 
@@ -1082,19 +1080,9 @@ This corresponds to roughly 39.5 MB/s and led to investigation of the USB link.
 The first native Win32 raw-write test completed successfully on the expendable
 150 GB disk in position P2:
 
-```text
-Method:            native-zero-overwrite
-Disk at start:     4
-Enclosure serial:  21A000000419
-Capacity:          150038863360 bytes
-Started (UTC):     2026-08-17 01:49:59
-Completed (UTC):   2026-08-17 02:22:04
-Elapsed:           00:32:04.9
-Confirmed bytes:   150038863360
-Average throughput: approximately 77.9 MB/s
-Terminal status:   COMPLETE
-Post-check:        zero partitions
-```
+The test completed with `native-zero-overwrite`, `COMPLETE`, and zero
+partitions. Exact hardware identities, capacities, and timestamps are retained
+in private test records.
 
 The test validated volume locking and dismounting, post-lock identity and target
 revalidation, unbuffered aligned raw writes, live byte progress, throughput and
@@ -1111,21 +1099,18 @@ installed disk was previously wiped.
 
 Enclosure:
 
-```text
-Sabrent DS-SC4B
-Advertised link: USB 3.2 Gen 2, up to 10 Gbps
-Bay bridges:     ASMedia ASM235CM / VID_174C PID_55AA
-```
+The test used a multi-bay USB enclosure. Exact enclosure model and hardware
+identifiers are retained in private test records.
 
 The enclosure hides the physical disks' model and serial. It exposes bay-based
 serials and one shared UniqueId:
 
 ```text
-P1: 11A000000419
-P2: 21A000000419
-P3: 31A000000419
-P4: 41A000000419
-Shared UniqueId: 5000000000000001
+P1: SYNTHETIC_BAY_1
+P2: SYNTHETIC_BAY_2
+P3: SYNTHETIC_BAY_3
+P4: SYNTHETIC_BAY_4
+Shared UniqueId: SYNTHETIC_SHARED_ID
 ```
 
 DiskWiper therefore uses the full fingerprint, including capacity, device path,

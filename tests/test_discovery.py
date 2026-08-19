@@ -69,7 +69,7 @@ def test_discovery_omits_zero_byte_empty_enclosure_slots(monkeypatch) -> None:
             {
                 "Number": 3,
                 "Model": "ASM235CM",
-                "SerialNumber": "41A000000419",
+                "SerialNumber": "TEST-EMPTY-SLOT",
                 "Size": 0,
                 "BusType": "USB",
                 "LogicalSectorSize": 0,

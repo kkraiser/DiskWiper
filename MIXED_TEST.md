@@ -6,14 +6,15 @@ addressable byte on all five explicitly armed targets.
 
 ## Current exact targets
 
-From the fresh `sata-before.txt` inventory captured on 2026-08-18:
+Populate the target list from a fresh inventory immediately before each run.
+Do not publish or reuse real serial numbers and capacities:
 
 ```text
-SATA  ZX20HKS9:22000969973760
-SATA  ZX215K1P:22000969973760
-USB   11A000000419:20000588955648
-USB   21A000000419:22000969973760
-USB   31A000000419:18000207937536
+SATA  SERIAL_1:SIZE_BYTES_1
+SATA  SERIAL_2:SIZE_BYTES_2
+USB   SERIAL_3:SIZE_BYTES_3
+USB   SERIAL_4:SIZE_BYTES_4
+USB   SERIAL_5:SIZE_BYTES_5
 ```
 
 Stop if a new inventory differs in serial, capacity, interface, or protection
@@ -49,11 +50,11 @@ $env:DISKWIPER_ENABLE_NATIVE_WIPES = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL
 
 .\.venv\Scripts\python.exe -m diskwiper.main --enable-real-wipes `
   --real-backend native `
-  --native-test-target "ZX20HKS9:22000969973760" `
-  --native-test-target "ZX215K1P:22000969973760" `
-  --native-test-target "11A000000419:20000588955648" `
-  --native-test-target "21A000000419:22000969973760" `
-  --native-test-target "31A000000419:18000207937536"
+  --native-test-target "SERIAL_1:SIZE_BYTES_1" `
+  --native-test-target "SERIAL_2:SIZE_BYTES_2" `
+  --native-test-target "SERIAL_3:SIZE_BYTES_3" `
+  --native-test-target "SERIAL_4:SIZE_BYTES_4" `
+  --native-test-target "SERIAL_5:SIZE_BYTES_5"
 ```
 
 Confirm the `EXPERIMENTAL native raw zero overwrite` banner. Select exactly
@@ -93,14 +94,13 @@ Because the USB bridge exposes bay identities rather than true media serials,
 history is audit evidence for this run and must not be treated as proof about a
 later replacement disk installed in the same bay.
 
-## Observed startup issue — 2026-08-18
+## Observed startup issue
 
-During the first five-disk launch, disk 5 (`21A000000419`) reached `ERROR` before
-writing because its serialized last-second PowerShell discovery timed out after
-30 seconds while the other four jobs were starting. The other four jobs continued
-normally. This was a transient inventory failure, not an identity mismatch or raw
-write error. The native backend now retries one failed discovery before rejecting
-a job.
+During an early five-disk launch, one job reached `ERROR` before writing because
+last-second PowerShell discovery timed out while the other jobs were starting.
+The other jobs continued normally. This was a transient inventory failure, not
+an identity mismatch or raw write error. The native backend now retries one
+failed discovery before rejecting a job.
 
 ## Completed mixed test — 2026-08-19
 
@@ -108,14 +108,8 @@ The relaunched five-disk run completed successfully. Every target reached
 `COMPLETE`, displayed `100.0%`, and passed the native backend's final
 zero-partition verification.
 
-```text
-Disk  Interface  Serial          Capacity          Elapsed  Average
-0     SATA       ZX20HKS9       22000969973760    27h 57m  218.6 MB/s
-1     SATA       ZX215K1P       22000969973760    27h 08m  225.3 MB/s
-4     USB P1     11A000000419   20000588955648    26h 20m  211.0 MB/s
-5     USB P2     21A000000419   22000969973760    27h 32m  221.9 MB/s
-6     USB P3     31A000000419   18000207937536    23h 15m  215.1 MB/s
-```
+Keep the exact device identities, timings, and throughput in private test
+records. This document should contain only the procedure and qualitative result.
 
 The attached activity capture explicitly recorded the `VERIFYING` to `COMPLETE`
 transition and `no partitions remain` result for disks 0, 1, and 5. Earlier

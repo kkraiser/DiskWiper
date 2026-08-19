@@ -3,6 +3,16 @@
 DiskWiper is a safety-first Windows 11 utility for inventorying and performing a
 full zero overwrite of explicitly selected external HDDs.
 
+> **Alpha software: destructive operation.** DiskWiper can permanently destroy
+> data. It is provided for technically experienced Windows users who have
+> independently verified the selected device. Start in simulation mode and read
+> the safety documentation before enabling any physical wipe.
+
+This is an early MVP release, not a certified data-erasure product. It does not
+claim secure sanitization of remapped sectors, inaccessible areas, SSD flash
+translation layers, or device-internal storage. It is Windows-only and currently
+expects Python 3.12 or newer.
+
 The current MVP includes:
 
 - read-only Windows disk inventory;
@@ -33,6 +43,10 @@ python -m pip install -e ".[dev]"
 python -m pytest
 python -m diskwiper.main
 ```
+
+The automated tests use fakes and do not perform physical disk writes. CI runs
+the test suite on supported Windows Python versions. Physical-drive procedures
+are manual, destructive tests and are intentionally not part of CI.
 
 To inspect the same read-only inventory and protection decisions without opening
 the GUI:
@@ -112,8 +126,9 @@ backend; parallel simulation is already supported.
 
 ## Experimental native backend
 
-The native raw-write backend is available for development but has not yet passed
-a controlled physical-disk test. DiskPart remains the default destructive backend.
+The native raw-write backend is experimental. It has had limited controlled
+physical-disk validation, but it is not certified for production use. DiskPart
+remains the default destructive backend.
 Selecting native mode requires the normal destructive gate plus a second,
 independent experimental gate and an explicit backend selection:
 
@@ -158,3 +173,13 @@ and USB-enclosure disks in one native session.
 DiskPart `clean all` writes zeros to the addressable sectors exposed by the drive.
 The MVP records this accurately as a zero-overwrite result; it does not claim
 certified purge of inaccessible, remapped, or device-internal storage areas.
+
+## Contributing and support
+
+Bug reports and pull requests are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md)
+before changing wipe or protection behavior. Do not include real disk serial
+numbers, device paths, logs, or other identifying data in issues or pull requests;
+use synthetic values instead. Security-sensitive reports belong in
+[SECURITY.md](SECURITY.md).
+
+DiskWiper is released under the [MIT License](LICENSE).
