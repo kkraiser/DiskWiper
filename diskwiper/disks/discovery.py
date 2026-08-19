@@ -4,6 +4,7 @@ import base64
 import json
 import os
 import subprocess
+import threading
 import uuid
 from dataclasses import dataclass
 from typing import Any, Protocol
@@ -48,6 +49,9 @@ $items = @(
                 DriveLetter = if ($volume) { [string]$volume.DriveLetter } else { $null }
                 Label = if ($volume) { [string]$volume.FileSystemLabel } else { $null }
                 Path = if ($accessPaths.Count -gt 0) { [string]$accessPaths[0] } else { $null }
+                AccessPaths = @($accessPaths | ForEach-Object { [string]$_ })
+                PartitionType = [string]$partition.Type
+                FileSystem = if ($volume) { [string]$volume.FileSystem } else { $null }
                 Size = if ($volume) { [uint64]$volume.Size } else { [uint64]$partition.Size }
             }
         }
@@ -86,8 +90,13 @@ $items = @(
 class PowerShellDiskDiscovery:
     def __init__(self, timeout_seconds: int = 30) -> None:
         self._timeout_seconds = timeout_seconds
+        self._lock = threading.Lock()
 
     def discover(self) -> DiskInventory:
+        with self._lock:
+            return self._discover_once()
+
+    def _discover_once(self) -> DiskInventory:
         encoded = base64.b64encode(_DISCOVERY_SCRIPT.encode("utf-16-le")).decode("ascii")
         creation_flags = subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0
         try:
@@ -122,7 +131,8 @@ class PowerShellDiskDiscovery:
             raw_disks = payload.get("Disks", [])
             if isinstance(raw_disks, dict):
                 raw_disks = [raw_disks]
-            disks = tuple(self._parse_disk(item) for item in raw_disks)
+            parsed_disks = (self._parse_disk(item) for item in raw_disks)
+            disks = tuple(disk for disk in parsed_disks if _is_present_disk(disk))
         except (TypeError, ValueError, KeyError, json.JSONDecodeError) as exc:
             raise DiscoveryError(f"Invalid disk inventory: {exc}") from exc
 
@@ -138,6 +148,13 @@ class PowerShellDiskDiscovery:
                 drive_letter=_optional_text(volume.get("DriveLetter")),
                 label=_optional_text(volume.get("Label")),
                 path=_optional_text(volume.get("Path")),
+                access_paths=tuple(
+                    path
+                    for value in _as_list(volume.get("AccessPaths"))
+                    if (path := _optional_text(value))
+                ),
+                partition_type=_optional_text(volume.get("PartitionType")),
+                file_system=_optional_text(volume.get("FileSystem")),
                 size_bytes=_optional_int(volume.get("Size")),
             )
             for volume in raw_volumes
@@ -183,3 +200,14 @@ def _optional_text(value: object) -> str | None:
 
 def _optional_int(value: object) -> int | None:
     return None if value is None else int(value)
+
+
+def _as_list(value: object) -> list[object]:
+    if value is None:
+        return []
+    return value if isinstance(value, list) else [value]
+
+
+def _is_present_disk(disk: PhysicalDisk) -> bool:
+    """Exclude empty enclosure slots that Windows exposes as zero-byte disks."""
+    return disk.size_bytes > 0

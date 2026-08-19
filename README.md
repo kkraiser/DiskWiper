@@ -10,8 +10,14 @@ The current MVP includes:
 - serial-number confirmation;
 - parallel simulated jobs with progress and cancellation;
 - SQLite job history and interrupted-job recovery;
+- background export of the complete current log without stopping active wipes;
 - a guarded, single-job DiskPart `clean all` backend;
 - post-operation identity and partition checks.
+
+Empty enclosure slots that Windows reports as zero-byte disk placeholders are
+omitted from inventory. Discovery does not assume a fixed enclosure or bay count;
+any positive-capacity disk remains visible and is evaluated by the normal safety
+policy.
 
 DiskWiper starts in **simulation mode**. Installing or launching it normally cannot
 execute DiskPart.
@@ -34,6 +40,19 @@ the GUI:
 ```powershell
 python -m diskwiper.main --inventory-only
 ```
+
+To exercise the native physical-device discovery and geometry checks without
+locking, dismounting, or writing, run a read-only preflight for an eligible disk:
+
+```powershell
+python -m diskwiper.main --native-preflight 4
+```
+
+The disk number is only used to locate the device for this invocation. DiskWiper
+checks its full fingerprint before and after opening a `GENERIC_READ` handle and
+compares independently queried length and sector geometry. Protected disks fail
+before the raw handle is opened. This command cannot be combined with
+`--enable-real-wipes`.
 
 Application data is stored under `%LOCALAPPDATA%\DiskWiper` by default. This
 includes the SQLite history database and rotating log.
@@ -60,8 +79,11 @@ sector sizes.
 The DiskPart worker rediscovers the disk and repeats protection checks immediately
 before generating its script. Any missing identity or mismatch aborts the job.
 
-Only disks reported with a `USB` bus type are eligible in this MVP. All other bus
-types fail closed. Simulated history never marks a disk as physically wiped.
+Only disks reported with a `USB` bus type are eligible by default. A temporary,
+exact-value environment gate can additionally allow disks reported as `SATA` for
+a controlled test; all boot, system, firmware-boot, protected-path, persistent
+protection, identity, and geometry checks remain active. All other bus types fail
+closed. Simulated history never marks a disk as physically wiped.
 
 ## Controlled destructive mode
 
@@ -87,6 +109,49 @@ Close that PowerShell session after testing so the environment gate is discarded
 The DiskPart MVP intentionally permits only one real wipe at a time and does not
 display a percentage. Parallel physical wipes will use the later native raw-write
 backend; parallel simulation is already supported.
+
+## Experimental native backend
+
+The native raw-write backend is available for development but has not yet passed
+a controlled physical-disk test. DiskPart remains the default destructive backend.
+Selecting native mode requires the normal destructive gate plus a second,
+independent experimental gate and an explicit backend selection:
+
+```powershell
+$env:DISKWIPER_ENABLE_REAL_WIPES = "I_UNDERSTAND_THIS_DESTROYS_DATA"
+$env:DISKWIPER_ENABLE_NATIVE_WIPES = "I_UNDERSTAND_NATIVE_WIPES_ARE_EXPERIMENTAL"
+python -m diskwiper.main --enable-real-wipes --real-backend native `
+  --native-test-target "SERIAL:SIZE_BYTES"
+```
+
+During the controlled test phase, native mode also requires at least one
+`--native-test-target SERIAL:SIZE_BYTES`. Repeat the option to arm multiple exact
+targets. The backend checks each selected disk against the armed set before and
+after volume locking, in addition to its full fingerprint checks. Only the native
+backend permits overlapping physical jobs; DiskPart remains single-job.
+
+Omitting either environment gate, the command-line flag, or the native backend
+selection starts the application without an enabled native destructive path.
+Do not use this mode on a disk containing valuable data. Its first physical test
+must use an expendable disk with unrelated storage disconnected.
+
+## Controlled internal SATA test
+
+Internal SATA disks remain protected by default. For a controlled session, set
+the additional bus gate before inventory, preflight, and launch:
+
+```powershell
+$env:DISKWIPER_ENABLE_INTERNAL_SATA_WIPES = "I_UNDERSTAND_INTERNAL_SATA_WIPES_DESTROY_DATA"
+```
+
+This gate only permits the `SATA` bus type to proceed to the normal protection
+checks; it does not enable real wipes. Native destructive mode still requires its
+two existing gates, `--enable-real-wipes`, Administrator privileges, exact
+`SERIAL:SIZE_BYTES` targets, per-disk serial confirmation, and last-second
+identity revalidation. See `SATA_TEST.md` for the two-disk procedure.
+
+See `MIXED_TEST.md` for the controlled parallel test covering both internal SATA
+and USB-enclosure disks in one native session.
 
 ## Important limitation
 

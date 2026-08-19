@@ -112,12 +112,10 @@ class _WindowsRawReader:
             self._handle = None
 
 
-def estimated_wipe_duration_range(
+def estimated_wipe_duration(
     size_bytes: int, measured_read_bytes_per_second: float
-) -> tuple[float, float]:
-    """Estimate zero-write duration using 40–80% of sampled read throughput."""
+) -> float:
+    """Estimate zero-write duration at 60% of sampled read throughput."""
     if size_bytes <= 0 or measured_read_bytes_per_second <= 0:
         raise ValueError("Capacity and measured speed must be positive")
-    fastest = size_bytes / (measured_read_bytes_per_second * 0.8)
-    slowest = size_bytes / (measured_read_bytes_per_second * 0.4)
-    return fastest, slowest
+    return size_bytes / (measured_read_bytes_per_second * 0.6)

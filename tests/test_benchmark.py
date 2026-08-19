@@ -1,15 +1,14 @@
 import pytest
 
-from diskwiper.disks.benchmark import estimated_wipe_duration_range
+from diskwiper.disks.benchmark import estimated_wipe_duration
 
 
-def test_estimated_wipe_range_uses_conservative_write_factors() -> None:
-    fastest, slowest = estimated_wipe_duration_range(80_000, 100)
+def test_estimated_wipe_duration_uses_midpoint_write_factor() -> None:
+    estimate = estimated_wipe_duration(60_000, 100)
 
-    assert fastest == 1_000
-    assert slowest == 2_000
+    assert estimate == 1_000
 
 
 def test_estimated_wipe_range_rejects_invalid_measurements() -> None:
     with pytest.raises(ValueError):
-        estimated_wipe_duration_range(100, 0)
+        estimated_wipe_duration(100, 0)

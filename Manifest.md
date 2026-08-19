@@ -520,19 +520,22 @@ This lets the user later answer:
 
 ---
 
-# 16. Already-Wiped Detection
+# 16. Wipe History Is Not Media Identity
 
-When a disk is inserted, compare its serial number with wipe history.
+Keep completed wipe records as an audit trail, but do not classify newly
+discovered media as `PREVIOUSLY WIPED`. Some USB enclosures expose a bay or bridge
+serial instead of the installed drive's true serial. A replacement drive of the
+same capacity can therefore reproduce the same observable fingerprint.
 
-If previously completed:
+An eligible idle disk is shown as `READY`, regardless of similar historical
+records. Current-session job states such as `WIPING`, `CANCELLED / INCOMPLETE`,
+and `COMPLETE` remain visible. History may be searched or reported separately,
+with a warning whenever the stored identity may belong to an enclosure bay.
 
-```text
-PREVIOUSLY WIPED
-Last wipe: 2026-08-16
-Method: Full zero overwrite
-```
-
-Do not prevent another wipe, but warn that one has already been recorded.
+Do not restore automatic already-wiped classification unless DiskWiper can prove
+media identity using a true device identifier or an intentionally written marker.
+Any marker design must disclose that it modifies the post-wipe disk and must not
+weaken or misrepresent zero-overwrite verification.
 
 ---
 
@@ -852,7 +855,9 @@ Potential additions:
 - Drive temperature.
 - Automatically identify HDD versus SSD.
 - Optional disk labels such as Bay 1–4.
-- User-configurable table column visibility and ordering.
+- User-configurable table column visibility and ordering, including an optional
+  raw `Processed Bytes` column for diagnostics while keeping elapsed/remaining
+  time and percentage as the default user-facing progress indicators.
 - Windows notifications when a disk finishes.
 
 Example notification:
@@ -1027,15 +1032,34 @@ Never attempt to guess what the user intended.
 ## Application status
 
 - DiskPart-based MVP is feature-complete for the current test phase.
-- Automated suite: **36 tests passing** on Python 3.12.
+- Automated suite: **102 tests passing** on Python 3.12.
 - Simulation, parallel simulated jobs, cancellation, persistent history,
   permanent protection, enclosure-position display, read-only speed sampling,
   estimated duration, and 60-second/manual inventory refresh are implemented.
 - Per-disk eject was removed. Hot-swap is controlled by the enclosure; use
   Windows safe removal only when disconnecting the entire enclosure.
-- A future native Python raw-write backend is planned to provide actual byte
-  progress, throughput, ETA, cooperative cancellation, and controlled parallel
-  physical wipes while preserving all current safety gates.
+- The native Python raw-write backend provides actual byte progress, throughput,
+  ETA, cooperative cancellation, and controlled parallel physical wipes while
+  preserving the current safety gates.
+
+## Completed mixed SATA and USB destructive test
+
+On 2026-08-19, two internal SATA disks and three USB-enclosure disks completed
+parallel native zero overwrites in one session. All five targets reached
+`COMPLETE`, 100%, and zero partitions after final metadata refresh and identity
+verification.
+
+```text
+ZX20HKS9       SATA    22.00 TB   27h 57m   218.6 MB/s
+ZX215K1P       SATA    22.00 TB   27h 08m   225.3 MB/s
+11A000000419   USB P1  20.00 TB   26h 20m   211.0 MB/s
+21A000000419   USB P2  22.00 TB   27h 32m   221.9 MB/s
+31A000000419   USB P3  18.00 TB   23h 15m   215.1 MB/s
+```
+
+The USB results demonstrate sustained concurrent operation across three populated
+enclosure bays. Bay serials remain bridge identities rather than proof of the
+installed physical media's identity.
 
 ## Completed destructive test
 
@@ -1052,6 +1076,36 @@ Power-cycle:      disk rediscovered and recognized from wipe history
 ```
 
 This corresponds to roughly 39.5 MB/s and led to investigation of the USB link.
+
+## Completed native destructive test
+
+The first native Win32 raw-write test completed successfully on the expendable
+150 GB disk in position P2:
+
+```text
+Method:            native-zero-overwrite
+Disk at start:     4
+Enclosure serial:  21A000000419
+Capacity:          150038863360 bytes
+Started (UTC):     2026-08-17 01:49:59
+Completed (UTC):   2026-08-17 02:22:04
+Elapsed:           00:32:04.9
+Confirmed bytes:   150038863360
+Average throughput: approximately 77.9 MB/s
+Terminal status:   COMPLETE
+Post-check:        zero partitions
+```
+
+The test validated volume locking and dismounting, post-lock identity and target
+revalidation, unbuffered aligned raw writes, live byte progress, throughput and
+ETA, explicit flush, Windows disk-property refresh, and final identity and
+partition verification. Read-only inventory captures before and after showed the
+same disk number, enclosure serial, and capacity. After an enclosure power-cycle,
+the target was reassigned from disk 4 to disk 3 and matched the earlier history
+fingerprint. Later replacement-disk testing showed that this fingerprint can
+follow the enclosure bay rather than the physical media, so it is retained only
+as audit evidence and is no longer presented as proof that the currently
+installed disk was previously wiped.
 
 ## Test enclosure and identity behavior
 
@@ -1101,21 +1155,118 @@ hub. The observed ~39.5 MB/s wipe throughput is consistent with USB 2.0. Other
 ASMedia SuperSpeed hubs visible on the PC were traced to unrelated controller
 paths, not this enclosure.
 
-## Next test on Intel PC
+## USB performance resolution
 
-Connect the DS-SC4B directly to a known 10 Gbps port on the Intel PC, fully
-power-cycle the enclosure, and check:
+A cable explicitly labelled `USB 3.2 10Gbps` resolved the USB 2.0 fallback on
+the AMD PC. All four bays now enumerate over UAS beneath:
 
-1. Whether every bay and expected capacity is enumerated.
-2. Whether the bay devices still use UAS.
-3. Whether their immediate parent is still `VID_2109&PID_2822` / `USB2.0 Hub`.
-4. Whether the read benchmark remains near 40 MB/s or rises above USB 2.0
-   throughput.
-5. If it remains USB 2.0 on the Intel PC, contact Sabrent for firmware guidance
-   or replacement; the evidence then strongly isolates the enclosure.
+```text
+USB\VID_2109&PID_0822\MSFT30000000001
+Friendly name:   Generic SuperSpeed USB Hub
+Bus description: USB3.1 Hub
+Parent:          USB Root Hub (USB 3.0)
+Controller:      AMD USB 3.10 eXtensible Host Controller
+```
 
-Do not enable destructive mode merely to test link speed. Use inventory and the
-read-only benchmark first.
+DiskWiper's read-only benchmark also reports substantially higher throughput.
+The earlier `PID_2822` / `USB2.0 Hub` path and approximately 39.5 MB/s ceiling
+were therefore caused by the USB connection falling back to USB 2.0. Testing
+on the Intel PC is no longer required to isolate this issue.
+
+## Backlog: physical-drive identity, temperature, and SMART through USB
+
+Investigate read-only pass-through methods that can reach the physical drive
+behind a USB bridge. Obtaining the drive's own model, serial number, firmware
+revision, WWN, and SMART data would improve replacement detection, protection,
+history correlation, reports, and diagnostics. Temperature remains an optional
+column; identity is the higher-value goal.
+
+Every identifier must carry provenance and confidence, for example `Windows disk
+identity`, `USB bridge/bay identity`, `ATA IDENTIFY`, or `SCSI VPD`. Never silently
+substitute a bridge serial for a physical-media serial. If pass-through is not
+supported, continue showing the current bridge identity and treat history as audit
+evidence rather than proof of media identity.
+
+The feature must run asynchronously, display unavailable values when a bridge
+does not expose them, invalidate cached physical identity after removal or
+reconnection, and avoid all diagnostic polling while a disk has an active wipe
+job. Pass-through responses must be bound back to the same Windows disk using the
+full current fingerprint before being displayed or persisted.
+
+Evidence from the current Sabrent DS-SC4B / ASM235CM enclosure:
+
+- Windows `Get-PhysicalDisk` returns no temperature for any of the four bays.
+- `Get-StorageReliabilityCounter` cannot retrieve a CIM reliability resource
+  for any bay.
+- smartmontools 7.5 `smartctl --scan-open` identifies disks 3 through 6 as SAT
+  candidates but fails to open them with Windows error 5.
+- `smartctl -a -d sat \\.\PhysicalDrive3` fails with `Invalid argument`.
+
+Future options to investigate:
+
+1. Query standard Windows storage descriptors and explicitly record whether each
+   returned serial belongs to the bridge or underlying media.
+2. Probe read-only SCSI vital-product-data pages for unit serial and device
+   identifiers where the bridge supports them.
+3. Probe ATA `IDENTIFY DEVICE` and SMART data through standards-based SAT/SCSI or
+   Windows ATA pass-through, starting with one known expendable disk and comparing
+   the returned serial against its physical label.
+4. Test other documented smartctl device types or permissions only when doing so
+   is read-only and the target identity can be revalidated before and after the
+   request. Never auto-cycle through vendor-specific commands on unknown bridges.
+5. Determine whether HWiNFO can expose physical serials or temperatures through
+   this bridge and, if so, whether its shared-memory sensor interface can be
+   consumed safely as an optional integration while HWiNFO is running.
+6. Keep the UI provider-neutral: native Windows queries, pass-through, smartctl,
+   or an external sensor provider may supply identity and telemetry. Show the
+   source and fall back to unavailable rather than guessing. An
+   external sensor provider may supply a temperature, otherwise show `—`.
+
+Do not add HWiNFO or smartmontools as a mandatory runtime dependency.
+
+## Backlog: safety acknowledgements in Settings
+
+Replace command-line and environment-variable test gates with a dedicated UI
+Settings workflow once the controlled destructive tests are complete. The UI
+must present every applicable disclaimer, require an explicit acknowledgement
+for each capability (real wipes, experimental native writes, and internal-bus
+access), clearly show which protections are relaxed, and allow the user to revoke
+an acknowledgement without using a terminal. Persisted settings must fail closed
+when missing, malformed, or created by an incompatible application version.
+
+Internal-bus access must remain separate from destructive-mode authorization and
+must never disable boot, system, firmware-boot, protected-path, persistent-device,
+identity, geometry, exact-target, confirmation, or last-second revalidation checks.
+
+## Backlog: rapid cryptographic invalidation
+
+Research an optional fast sanitization path for disks whose data was encrypted
+before use. Prefer standards-aligned cryptographic erase or a device-native
+sanitize/crypto-scramble command that destroys the applicable media-encryption
+key. Do not implement this as arbitrary random writes to a few sectors: making a
+partition table or filesystem unreadable does not prove that encryption metadata,
+backup headers, recovery material, or user data cannot be recovered.
+
+The feature must remain separate from the full zero-overwrite method and must:
+
+1. positively identify the encryption technology and its key scope;
+2. prove that the entire target media was encrypted before accepting a
+   cryptographic-erase claim;
+3. account for external recovery keys, escrowed keys, header backups, and drive
+   firmware behavior;
+4. use an explicit per-device command allowlist with capability discovery and
+   post-command verification;
+5. preserve the existing identity, protection, authorization, confirmation, and
+   last-second revalidation checks;
+6. record the exact method, command result, evidence, assurance category, and any
+   limitations in history and reports;
+7. fail closed or fall back to a complete overwrite when prerequisites cannot be
+   proven.
+
+If a separate quick `metadata destruction` tool is ever offered, label it as
+making ordinary access difficult rather than as sanitization or cryptographic
+erase. It must not create a successful wipe-history record or claim that data is
+unrecoverable.
 
 ---
 

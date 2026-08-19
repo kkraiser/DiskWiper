@@ -29,6 +29,16 @@ def make_disk(**changes) -> PhysicalDisk:
         partition_style="GPT",
         health_status="Healthy",
         operational_status=("Online",),
-        volumes=(VolumeInfo(drive_letter="T", label="TEST", size_bytes=500_000_000_000),),
+        volumes=(
+            VolumeInfo(
+                drive_letter="T",
+                label="TEST",
+                path="T:\\",
+                access_paths=("T:\\", "\\\\?\\Volume{test-volume}\\"),
+                partition_type="Basic",
+                file_system="NTFS",
+                size_bytes=500_000_000_000,
+            ),
+        ),
     )
     return replace(disk, **changes)

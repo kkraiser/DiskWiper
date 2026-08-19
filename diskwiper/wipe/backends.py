@@ -43,6 +43,10 @@ class WipeBackend(Protocol):
     ) -> BackendResult: ...
 
 
+class RealWipeBackend(WipeBackend, Protocol):
+    def set_protection_policy(self, policy: ProtectionPolicy) -> None: ...
+
+
 class SimulationBackend:
     name = "simulated-zero-overwrite"
     simulated = True
@@ -88,6 +92,7 @@ class DiskPartBackend:
     name = "diskpart-clean-all"
     simulated = False
     supports_cancel = False
+    supports_parallel_real = False
 
     def __init__(
         self,

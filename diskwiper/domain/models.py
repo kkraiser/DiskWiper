@@ -18,7 +18,6 @@ def normalize_identifier(value: str | None) -> str:
 class DiskStatus(StrEnum):
     PROTECTED = "PROTECTED"
     READY = "READY"
-    PREVIOUSLY_WIPED = "PREVIOUSLY WIPED"
 
 
 class JobStatus(StrEnum):
@@ -38,6 +37,9 @@ class VolumeInfo:
     drive_letter: str | None = None
     label: str | None = None
     path: str | None = None
+    access_paths: tuple[str, ...] = ()
+    partition_type: str | None = None
+    file_system: str | None = None
     size_bytes: int | None = None
 
 
@@ -133,7 +135,6 @@ class DiskAssessment:
     disk: PhysicalDisk
     status: DiskStatus
     protection_reasons: tuple[str, ...] = ()
-    previously_wiped_at: datetime | None = None
 
     @property
     def can_wipe(self) -> bool:

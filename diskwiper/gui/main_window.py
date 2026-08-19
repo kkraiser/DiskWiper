@@ -1,18 +1,23 @@
 from __future__ import annotations
 
 import logging
+import shutil
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import replace
+from datetime import datetime
+from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QColor, QCloseEvent
 from PySide6.QtWidgets import (
     QAbstractScrollArea,
     QAbstractItemView,
+    QFileDialog,
     QHBoxLayout,
     QLabel,
     QMainWindow,
     QMessageBox,
+    QPlainTextEdit,
     QPushButton,
     QTableWidget,
     QTableWidgetItem,
@@ -24,15 +29,14 @@ from diskwiper.config import AppConfig
 from diskwiper.disks.benchmark import (
     BenchmarkError,
     benchmark_read_speed,
-    estimated_wipe_duration_range,
+    estimated_wipe_duration,
 )
 from diskwiper.disks.discovery import DiskDiscovery, DiskInventory, DiscoveryError
 from diskwiper.disks.protection import ProtectionPolicy
 from diskwiper.disks.protection import add_protected_stable_keys
 from diskwiper.domain.models import DiskAssessment, DiskStatus, JobProgress, JobStatus
 from diskwiper.gui.confirm_dialog import ConfirmWipeDialog
-from diskwiper.history.database import HistoryStore
-from diskwiper.wipe.backends import DiskPartBackend, SimulationBackend
+from diskwiper.wipe.backends import RealWipeBackend, SimulationBackend
 from diskwiper.wipe.manager import JobManager
 
 
@@ -41,7 +45,8 @@ logger = logging.getLogger(__name__)
 
 class MainWindow(QMainWindow):
     DEFAULT_WIDTH = 1480
-    DEFAULT_HEIGHT = 620
+    DEFAULT_HEIGHT = 760
+    ACTIVITY_MAX_BLOCKS = 500
     COLUMNS = (
         "Select",
         "Disk",
@@ -52,10 +57,9 @@ class MainWindow(QMainWindow):
         "Interface",
         "Position",
         "Volumes",
-        "Read Speed",
-        "Est.",
+        "Speed: Current (Avg.)",
+        "Time: Total (Remaining)",
         "Progress",
-        "Elapsed",
         "Action",
     )
     COLUMN_WIDTHS = (
@@ -68,9 +72,8 @@ class MainWindow(QMainWindow):
         75,
         75,
         90,
-        105,
-        120,
-        85,
+        175,
+        175,
         85,
         95,
     )
@@ -80,22 +83,22 @@ class MainWindow(QMainWindow):
         config: AppConfig,
         discovery: DiskDiscovery,
         policy: ProtectionPolicy,
-        history: HistoryStore,
         manager: JobManager,
         simulation_backend: SimulationBackend,
-        diskpart_backend: DiskPartBackend,
+        real_backend: RealWipeBackend,
     ) -> None:
         super().__init__()
         self._config = config
         self._discovery = discovery
         self._policy = policy
-        self._history = history
         self._manager = manager
         self._simulation_backend = simulation_backend
-        self._diskpart_backend = diskpart_backend
+        self._real_backend = real_backend
         self._inventory: DiskInventory | None = None
         self._assessments: dict[int, DiskAssessment] = {}
         self._progress: dict[str, JobProgress] = {}
+        self._last_activity_by_disk: dict[int, tuple[str, JobStatus, str]] = {}
+        self._current_write_speeds: dict[str, float] = {}
         self._discovery_pool = ThreadPoolExecutor(
             max_workers=1,
             thread_name_prefix="diskwiper-discovery",
@@ -107,12 +110,17 @@ class MainWindow(QMainWindow):
         )
         self._benchmark_futures: dict[str, Future[float]] = {}
         self._read_speeds: dict[str, float | None] = {}
+        self._log_export_pool = ThreadPoolExecutor(
+            max_workers=1,
+            thread_name_prefix="diskwiper-log-export",
+        )
+        self._log_export_future: Future[Path] | None = None
 
         self.setWindowTitle("DiskWiper 0.1")
         self.resize(self.DEFAULT_WIDTH, self.DEFAULT_HEIGHT)
 
         mode_text = (
-            "DESTRUCTIVE MODE — DiskPart clean all is enabled"
+            f"DESTRUCTIVE MODE — {config.destructive_mode_description} is enabled"
             if config.real_wipes_enabled
             else "SIMULATION MODE — no physical erase command can execute"
         )
@@ -149,20 +157,30 @@ class MainWindow(QMainWindow):
         self._cancel_button.clicked.connect(self._cancel_selected)
         self._protect_button = QPushButton("Protect Selected Permanently")
         self._protect_button.clicked.connect(self._protect_selected)
-        self._status_label = QLabel("Waiting for disk inventory")
+        self._save_log_button = QPushButton("Save Log File")
+        self._save_log_button.clicked.connect(self._save_log_file)
+        self._activity_panel = QPlainTextEdit()
+        self._activity_panel.setReadOnly(True)
+        self._activity_panel.setMaximumBlockCount(self.ACTIVITY_MAX_BLOCKS)
+        self._activity_panel.setMinimumHeight(120)
+        self._activity_panel.setMaximumHeight(200)
+        self._activity_panel.setPlaceholderText("Status and error messages appear here")
+        self._append_activity("Waiting for disk inventory")
 
         controls = QHBoxLayout()
         controls.addWidget(self._refresh_button)
         controls.addWidget(self._wipe_button)
         controls.addWidget(self._cancel_button)
         controls.addWidget(self._protect_button)
+        controls.addWidget(self._save_log_button)
         controls.addStretch()
-        controls.addWidget(self._status_label)
 
         layout = QVBoxLayout()
         layout.addWidget(self._mode_banner)
         layout.addLayout(controls)
-        layout.addWidget(self._table)
+        layout.addWidget(self._table, 1)
+        layout.addWidget(QLabel("Activity"))
+        layout.addWidget(self._activity_panel)
         central = QWidget()
         central.setLayout(layout)
         self.setCentralWidget(central)
@@ -182,7 +200,6 @@ class MainWindow(QMainWindow):
         if self._refresh_future is not None:
             return
         self._refresh_button.setEnabled(False)
-        self._status_label.setText("Refreshing disk inventory…")
         self._refresh_future = self._discovery_pool.submit(self._discovery.discover)
 
     def closeEvent(self, event: QCloseEvent) -> None:
@@ -196,10 +213,12 @@ class MainWindow(QMainWindow):
             return
         self._discovery_pool.shutdown(wait=False, cancel_futures=True)
         self._benchmark_pool.shutdown(wait=False, cancel_futures=True)
+        self._log_export_pool.shutdown(wait=True, cancel_futures=False)
         self._manager.shutdown()
         event.accept()
 
     def _poll_background_work(self) -> None:
+        self._poll_log_export()
         if self._refresh_future is not None and self._refresh_future.done():
             future = self._refresh_future
             self._refresh_future = None
@@ -208,33 +227,87 @@ class MainWindow(QMainWindow):
                 self._apply_inventory(future.result())
             except DiscoveryError as exc:
                 logger.error("Disk discovery failed: %s", exc)
-                self._status_label.setText(f"Discovery error: {exc}")
+                self._append_activity(f"Discovery error: {exc}")
             except Exception as exc:
                 logger.exception("Unexpected disk discovery failure")
-                self._status_label.setText(f"Discovery error: {exc}")
+                self._append_activity(f"Discovery error: {exc}")
 
         events = self._manager.drain_events()
         for progress in events:
+            previous = self._progress.get(progress.stable_key)
+            if (
+                progress.status is JobStatus.WIPING
+                and previous is not None
+                and previous.job_id == progress.job_id
+                and progress.bytes_processed is not None
+                and previous.bytes_processed is not None
+                and progress.bytes_processed > previous.bytes_processed
+                and progress.elapsed_seconds > previous.elapsed_seconds
+            ):
+                self._current_write_speeds[progress.stable_key] = (
+                    (progress.bytes_processed - previous.bytes_processed)
+                    / (progress.elapsed_seconds - previous.elapsed_seconds)
+                )
             self._progress[progress.stable_key] = progress
-            self._status_label.setText(
-                f"Disk {progress.disk_number}: {progress.status.value} — {progress.message}"
-            )
+            activity = (progress.job_id, progress.status, progress.message)
+            if self._last_activity_by_disk.get(progress.disk_number) != activity:
+                self._last_activity_by_disk[progress.disk_number] = activity
+                self._append_activity(
+                    f"Disk {progress.disk_number}: {progress.status.value} — "
+                    f"{progress.message}"
+                )
         if events and self._inventory is not None:
             self._render_table()
         self._poll_benchmarks()
 
+    def _save_log_file(self) -> None:
+        if self._log_export_future is not None:
+            return
+        default_name = f"diskwiper-{datetime.now().astimezone():%Y%m%d-%H%M%S}.log"
+        destination, _selected_filter = QFileDialog.getSaveFileName(
+            self,
+            "Save Log File",
+            str(self._config.data_dir / default_name),
+            "Log files (*.log);;All files (*)",
+        )
+        if not destination:
+            return
+        self._save_log_button.setEnabled(False)
+        self._append_activity(f"Saving log snapshot to {destination}")
+        self._log_export_future = self._log_export_pool.submit(
+            _copy_log_snapshot,
+            self._config.log_path,
+            Path(destination),
+        )
+
+    def _poll_log_export(self) -> None:
+        future = self._log_export_future
+        if future is None or not future.done():
+            return
+        self._log_export_future = None
+        self._save_log_button.setEnabled(True)
+        try:
+            destination = future.result()
+        except Exception as exc:
+            logger.error("Log export failed: %s", exc)
+            self._append_activity(f"Log export failed: {exc}")
+            return
+        self._append_activity(f"Saved log snapshot to {destination}")
+
     def _apply_inventory(self, inventory: DiskInventory) -> None:
+        previous_disk_count = len(self._inventory.disks) if self._inventory else None
         self._inventory = inventory
         self._assessments = {}
         for disk in inventory.disks:
-            completed_at = self._history.last_completed_at(disk.fingerprint.stable_key)
-            self._assessments[disk.disk_number] = self._policy.assess(
-                disk,
-                previously_wiped_at=completed_at,
-            )
+            self._assessments[disk.disk_number] = self._policy.assess(disk)
         self._schedule_benchmarks()
-        self._status_label.setText(f"Detected {len(inventory.disks)} physical disk(s)")
+        if previous_disk_count != len(inventory.disks):
+            self._append_activity(f"Detected {len(inventory.disks)} physical disk(s)")
         self._render_table()
+
+    def _append_activity(self, message: str) -> None:
+        timestamp = datetime.now().astimezone().strftime("%H:%M:%S")
+        self._activity_panel.appendPlainText(f"[{timestamp}] {message}")
 
     def _render_table(self) -> None:
         checked_keys = self._checked_stable_keys()
@@ -265,6 +338,7 @@ class MainWindow(QMainWindow):
             benchmark_pending = benchmark_key in self._benchmark_futures
             read_speed = self._read_speeds.get(benchmark_key)
             status = progress.status.value if progress else assessment.status.value
+            active_write = progress is not None and progress.status is JobStatus.WIPING
             values = (
                 str(disk.disk_number),
                 status,
@@ -274,12 +348,22 @@ class MainWindow(QMainWindow):
                 disk.bus_type or "Unknown",
                 disk.enclosure_position or "—",
                 ", ".join(f"{letter}:" for letter in disk.drive_letters) or "—",
-                "Testing…" if benchmark_pending else _format_read_speed(read_speed),
-                "Testing…"
-                if benchmark_pending
-                else _format_wipe_estimate(disk.size_bytes, read_speed),
+                _format_write_speed(
+                    progress, self._current_write_speeds.get(benchmark_key)
+                )
+                if active_write
+                else (
+                    _format_write_speed(progress, None)
+                    if progress is not None
+                    else ("Testing…" if benchmark_pending else _format_read_speed(read_speed))
+                ),
+                _format_job_time(
+                    progress,
+                    None if benchmark_pending else _wipe_estimate_seconds(
+                        disk.size_bytes, read_speed
+                    ),
+                ),
                 _format_progress(progress),
-                _format_elapsed(progress.elapsed_seconds) if progress else "—",
             )
             for column, value in enumerate(values, start=1):
                 item = QTableWidgetItem(value)
@@ -306,8 +390,9 @@ class MainWindow(QMainWindow):
             action = QPushButton()
             active = disk.disk_number in self._manager.active_disk_numbers()
             if active:
-                action.setText("Cancel" if not self._config.real_wipes_enabled else "Running")
-                action.setEnabled(not self._config.real_wipes_enabled)
+                cancellable = self._manager.can_cancel_disk(disk.disk_number)
+                action.setText("Cancel" if cancellable else "Running")
+                action.setEnabled(cancellable)
                 action.clicked.connect(
                     lambda _checked=False, number=disk.disk_number: self._cancel_disk(number)
                 )
@@ -317,7 +402,7 @@ class MainWindow(QMainWindow):
                 action.clicked.connect(
                     lambda _checked=False, number=disk.disk_number: self._wipe_disk(number)
                 )
-            self._table.setCellWidget(row, 13, action)
+            self._table.setCellWidget(row, 12, action)
 
     def _checked_stable_keys(self) -> set[str]:
         checked: set[str] = set()
@@ -355,7 +440,7 @@ class MainWindow(QMainWindow):
         dialog = ConfirmWipeDialog(assessment, simulated=simulated, parent=self)
         if dialog.exec() != ConfirmWipeDialog.DialogCode.Accepted:
             return False
-        backend = self._simulation_backend if simulated else self._diskpart_backend
+        backend = self._simulation_backend if simulated else self._real_backend
         try:
             self._manager.start(assessment, self._inventory.generation, backend)
         except ValueError as exc:
@@ -414,31 +499,35 @@ class MainWindow(QMainWindow):
             protected_serial_numbers=protected.serial_numbers,
             protected_unique_ids=protected.unique_ids,
         )
-        self._diskpart_backend.set_protection_policy(self._policy)
+        self._real_backend.set_protection_policy(self._policy)
         for key in keys:
             self._progress.pop(key, None)
         if self._inventory is not None:
             self._apply_inventory(self._inventory)
-        self._status_label.setText(f"Permanently protected {len(keys)} disk(s)")
+        self._append_activity(f"Permanently protected {len(keys)} disk(s)")
 
     def _cancel_disk(self, disk_number: int) -> None:
         if not self._manager.cancel_disk(disk_number):
             QMessageBox.information(
                 self,
                 "Cannot cancel",
-                "No cancellable simulation is active for this disk.",
+                "No cancellable wipe is active for this disk.",
             )
 
     def _refresh_elapsed_cells(self) -> None:
         elapsed_by_disk = self._manager.active_elapsed_seconds()
         for row in range(self._table.rowCount()):
             disk_item = self._table.item(row, 1)
-            elapsed_item = self._table.item(row, 12)
-            if disk_item is None or elapsed_item is None:
+            select_item = self._table.item(row, 0)
+            time_item = self._table.item(row, 10)
+            if disk_item is None or select_item is None or time_item is None:
                 continue
             elapsed = elapsed_by_disk.get(int(disk_item.text()))
             if elapsed is not None:
-                elapsed_item.setText(_format_elapsed(elapsed))
+                key = str(select_item.data(Qt.ItemDataRole.UserRole))
+                progress = self._progress.get(key)
+                if progress is not None:
+                    time_item.setText(_format_job_time(replace(progress, elapsed_seconds=elapsed)))
 
     def _schedule_benchmarks(self) -> None:
         active = self._manager.active_disk_numbers()
@@ -476,6 +565,16 @@ class MainWindow(QMainWindow):
         if changed and self._inventory is not None:
             self._render_table()
 
+def _copy_log_snapshot(source: Path, destination: Path) -> Path:
+    if source.resolve() == destination.resolve():
+        raise ValueError("Choose a destination other than the active log file")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    shutil.copy2(source, destination)
+    return destination
+
+
 def _format_bytes(size: int) -> str:
     value = float(size)
     for unit in ("B", "KB", "MB", "GB", "TB", "PB"):
@@ -509,15 +608,87 @@ def _format_read_speed(bytes_per_second: float | None) -> str:
     return f"{bytes_per_second / 1_000_000:.1f} MB/s"
 
 
+def _average_write_speed(progress: JobProgress | None) -> float | None:
+    if (
+        progress is None
+        or not progress.bytes_processed
+        or progress.elapsed_seconds <= 0
+    ):
+        return None
+    return progress.bytes_processed / progress.elapsed_seconds
+
+
+def _format_write_speed(
+    progress: JobProgress | None, current_bytes_per_second: float | None = None
+) -> str:
+    average = _average_write_speed(progress)
+    if average is None:
+        return "Starting…"
+    average_text = f"{average / 1_000_000:.1f} avg."
+    if progress is not None and progress.status is JobStatus.WIPING:
+        if current_bytes_per_second is None:
+            return f"— ({average_text}) MB/s"
+        return f"{current_bytes_per_second / 1_000_000:.1f} ({average_text}) MB/s"
+    return f"{average_text} MB/s"
+
+
+def _format_live_eta(progress: JobProgress | None) -> str:
+    if (
+        progress is None
+        or not progress.bytes_processed
+        or not progress.total_bytes
+        or progress.elapsed_seconds <= 0
+    ):
+        return "Calculating…"
+    rate = progress.bytes_processed / progress.elapsed_seconds
+    remaining = max(0, progress.total_bytes - progress.bytes_processed)
+    return _format_approx_duration(remaining / rate) if remaining else "Done"
+
+
+def _format_job_time(
+    progress: JobProgress | None, initial_estimate_seconds: float | None = None
+) -> str:
+    if progress is None:
+        estimate = (
+            _format_approx_duration(initial_estimate_seconds)
+            if initial_estimate_seconds is not None
+            else "Unavailable"
+        )
+        return f"— ({estimate})"
+
+    total = _format_compact_duration(progress.elapsed_seconds)
+    if progress.status is JobStatus.WIPING:
+        remaining = _format_live_eta(progress)
+    elif progress.status is JobStatus.VERIFYING:
+        remaining = "Verifying"
+    elif progress.status is JobStatus.COMPLETE:
+        remaining = "Done"
+    else:
+        remaining = "Stopped"
+    return f"{total} ({remaining})"
+
+
 def _format_wipe_estimate(
     size_bytes: int, read_bytes_per_second: float | None
 ) -> str:
-    if read_bytes_per_second is None:
+    estimate = _wipe_estimate_seconds(size_bytes, read_bytes_per_second)
+    if estimate is None:
         return "Unavailable"
-    fastest, slowest = estimated_wipe_duration_range(
-        size_bytes, read_bytes_per_second
-    )
-    return f"{_format_approx_duration(fastest)}–{_format_approx_duration(slowest)}"
+    return _format_approx_duration(estimate)
+
+
+def _wipe_estimate_seconds(
+    size_bytes: int, read_bytes_per_second: float | None
+) -> float | None:
+    if read_bytes_per_second is None:
+        return None
+    return estimated_wipe_duration(size_bytes, read_bytes_per_second)
+
+
+def _format_compact_duration(seconds: float) -> str:
+    total_minutes = max(0, round(seconds / 60))
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours}h {minutes:02d}m" if hours else f"{minutes}m"
 
 
 def _format_approx_duration(seconds: float) -> str:

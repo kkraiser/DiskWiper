@@ -59,7 +59,16 @@ class JobManager:
             if not backend.simulated and any(
                 not job.backend.simulated for job in self._active.values()
             ):
-                raise ValueError("The DiskPart MVP permits only one real wipe at a time")
+                active_real = next(
+                    job.backend
+                    for job in self._active.values()
+                    if not job.backend.simulated
+                )
+                if not (
+                    getattr(backend, "supports_parallel_real", False)
+                    and getattr(active_real, "supports_parallel_real", False)
+                ):
+                    raise ValueError("Only parallel-capable native wipes may overlap")
 
             disk = assessment.disk
             authorization = WipeAuthorization(
@@ -111,6 +120,13 @@ class JobManager:
         with self._lock:
             return frozenset(job.disk_number for job in self._active.values())
 
+    def can_cancel_disk(self, disk_number: int) -> bool:
+        with self._lock:
+            return any(
+                job.disk_number == disk_number and job.backend.supports_cancel
+                for job in self._active.values()
+            )
+
     def active_elapsed_seconds(self) -> dict[int, float]:
         now = time.monotonic()
         with self._lock:
@@ -138,6 +154,8 @@ class JobManager:
         cancel_event: threading.Event,
     ) -> None:
         started = time.monotonic()
+        last_bytes_processed: int | None = 0
+        last_total_bytes: int | None = authorization.size_bytes
 
         def report(
             status: JobStatus,
@@ -145,6 +163,11 @@ class JobManager:
             bytes_processed: int | None,
             total_bytes: int | None,
         ) -> None:
+            nonlocal last_bytes_processed, last_total_bytes
+            if bytes_processed is not None:
+                last_bytes_processed = bytes_processed
+            if total_bytes is not None:
+                last_total_bytes = total_bytes
             progress = JobProgress(
                 job_id=job_id,
                 status=status,
@@ -180,6 +203,8 @@ class JobManager:
                 elapsed_seconds=time.monotonic() - started,
                 stable_key=authorization.fingerprint.stable_key,
                 message=str(exc),
+                bytes_processed=last_bytes_processed,
+                total_bytes=last_total_bytes,
             )
         except Exception as exc:  # defensive job boundary
             logger.exception("Unexpected wipe worker failure")
@@ -190,6 +215,8 @@ class JobManager:
                 elapsed_seconds=time.monotonic() - started,
                 stable_key=authorization.fingerprint.stable_key,
                 message=f"Unexpected worker failure: {exc}",
+                bytes_processed=last_bytes_processed,
+                total_bytes=last_total_bytes,
             )
         self._history.finish_job(terminal)
         self._events.put(terminal)
